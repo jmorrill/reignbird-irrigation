@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import type { ReactNode } from 'react';
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { CheckIcon, CloseIcon } from './Icons';
 
 /* ------------------------------------------------------------------ button */
@@ -272,6 +272,83 @@ export function TextInput({
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}
+    />
+  );
+}
+
+/**
+ * A text field for a value that lives on the server.
+ *
+ * Binding an input straight to server state and saving every keystroke looks fine
+ * until you type quickly, and then it fights you. Two things go wrong at once. The
+ * replies come back out of order, so an older one lands last and snaps the field
+ * back to a shorter string. And the server normalises what it stores — it trims
+ * names — so the moment you press space the reply arrives without it and the space
+ * you just typed disappears. Between them, a zone could not be called "Front Yard".
+ *
+ * So while the field has focus it belongs to whoever is typing: the draft is local,
+ * nothing is sent, and updates arriving from elsewhere are ignored rather than
+ * allowed to overwrite a half-typed word. On blur or Enter it normalises once,
+ * saves once, and goes back to following the server. Escape abandons the edit.
+ */
+export function DraftTextInput({
+  value,
+  onCommit,
+  normalize,
+  placeholder,
+  type = 'text',
+  inputMode,
+}: {
+  value: string;
+  /** Called on blur or Enter, and only when the value actually changed. */
+  onCommit: (value: string) => void;
+  /**
+   * Settles the text once editing finishes — trimming, or rejecting something
+   * unparseable by returning the current value. Applied to what is displayed as well
+   * as to what is saved, so the field never shows something that was not stored.
+   */
+  normalize?: (raw: string) => string;
+  placeholder?: string;
+  type?: string;
+  inputMode?: 'text' | 'numeric' | 'decimal';
+}) {
+  const [draft, setDraft] = useState(value);
+
+  // A ref, not state: this must not be a dependency of the effect below, or blurring
+  // would re-run it and briefly restore the old value before the save lands.
+  const editing = useRef(false);
+
+  useEffect(() => {
+    if (!editing.current) setDraft(value);
+  }, [value]);
+
+  function commit() {
+    editing.current = false;
+
+    const settled = normalize ? normalize(draft) : draft;
+    setDraft(settled);
+
+    if (settled !== value) onCommit(settled);
+  }
+
+  return (
+    <input
+      className="input"
+      type={type}
+      inputMode={inputMode}
+      value={draft}
+      placeholder={placeholder}
+      onFocus={() => (editing.current = true)}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          setDraft(value);
+          editing.current = false;
+          event.currentTarget.blur();
+        }
+      }}
     />
   );
 }

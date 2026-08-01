@@ -11,11 +11,11 @@ import { useMediaUrl } from './useMediaUrl';
 import {
   Button,
   DayPicker,
+  DraftTextInput,
   Field,
   Select,
   Sheet,
   Stepper,
-  TextInput,
   Toggle,
 } from './ui';
 
@@ -178,9 +178,10 @@ const ZoneSheet = observer(function ZoneSheet() {
         </Field>
 
         <Field label="Name">
-          <TextInput
+          <DraftTextInput
             value={zone.name}
-            onChange={(value) => zones.update(zone.stationNumber, { name: value })}
+            normalize={(raw) => raw.trim() || zone.name}
+            onCommit={(name) => zones.update(zone.stationNumber, { name })}
           />
         </Field>
 
@@ -239,13 +240,19 @@ const ZoneSheet = observer(function ZoneSheet() {
           label="Nozzle flow rate"
           hint="Gallons per minute for this zone's heads. Used to estimate water use — the controller cannot measure it."
         >
-          <TextInput
+          <DraftTextInput
             value={String(zone.nozzleFlowGpm)}
             inputMode="decimal"
-            onChange={(value) => {
-              const parsed = Number.parseFloat(value);
-              if (Number.isFinite(parsed)) zones.update(zone.stationNumber, { nozzleFlowGpm: parsed });
+            // Rejecting unparseable text here rather than while typing is what lets
+            // "1." exist on the way to "1.5", and lets the field be emptied and
+            // retyped instead of snapping back on the first keystroke.
+            normalize={(raw) => {
+              const parsed = Number.parseFloat(raw);
+              return Number.isFinite(parsed) && parsed > 0 ? String(parsed) : String(zone.nozzleFlowGpm);
             }}
+            onCommit={(text) =>
+              zones.update(zone.stationNumber, { nozzleFlowGpm: Number.parseFloat(text) })
+            }
           />
         </Field>
 
