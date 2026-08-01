@@ -175,8 +175,8 @@ const DelayHero = observer(function DelayHero({ days }: { days: number }) {
 });
 
 const IdleHero = observer(function IdleHero() {
-  const { controllers, schedules, zones } = useStore();
-  const next = nextRunDescription(schedules.programs);
+  const { controllers, schedules, zones, plans } = useStore();
+  const next = nextRunDescription(plans.enabled, schedules.programs);
 
   return (
     <div className="hero hero--idle">
@@ -266,16 +266,53 @@ function useRunTotal(station: number, remaining: number): number {
   return Math.max(total, remaining, 1);
 }
 
-import type { Program } from '../api/types';
+import type { Plan, Program } from '../api/types';
+import { describeNextRun } from '../stores/PlanStore';
 import { describeFrequency, formatStartTime } from '../stores/ScheduleStore';
 
-function nextRunDescription(programs: Program[]): { headline: string; detail: string } {
+/**
+ * What this controller is going to do next, and when.
+ *
+ * Plans are asked first, and that ordering is the whole point rather than a
+ * preference. A plan works by leaving the controller's own programs empty and
+ * driving the valves from here — so on any controller using one, the hardware has
+ * nothing scheduled by design. Reading only the hardware, as this used to, meant the
+ * card announced "No watering scheduled" to someone looking at a plan that was about
+ * to run.
+ *
+ * Falls through to the controller's own programs when there are no plans, which is
+ * still the right answer for hardware old enough to schedule for itself.
+ */
+function nextRunDescription(plans: Plan[], programs: Program[]): { headline: string; detail: string } {
+  const scheduled = plans
+    .filter((plan) => plan.nextRunUtc !== null)
+    .sort((a, b) => Date.parse(a.nextRunUtc!) - Date.parse(b.nextRunUtc!));
+
+  if (scheduled.length > 0) {
+    const soonest = scheduled[0];
+    const passes = soonest.passesPerDay > 1 ? `${soonest.passesPerDay}× a day · ` : '';
+
+    return {
+      headline: `Next run ${describeNextRun(soonest.nextRunUtc)}`,
+      detail: `${soonest.name} · ${passes}${soonest.wateringMinutesPerDay} min of watering a day`,
+    };
+  }
+
+  // An enabled plan with no next run is waiting on something — every day switched
+  // off, or no start time — and saying so beats implying nothing is set up.
+  if (plans.length > 0) {
+    return {
+      headline: 'No upcoming run',
+      detail: `${plans.length === 1 ? 'Your plan is' : 'Your plans are'} enabled but not due: check the days and start times.`,
+    };
+  }
+
   const active = programs.filter((program) => program.enabled);
 
   if (active.length === 0) {
     return {
       headline: 'No watering scheduled',
-      detail: 'Set up a program to water automatically, or run a zone by hand.',
+      detail: 'Set up a plan to water automatically, or run a zone by hand.',
     };
   }
 
