@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Controller certificates, pinned exactly as the official app pins them. Embedded
+      so the library stays self-contained.
+    -->
+    <EmbeddedResource Include="Certificates\*.pem" />
+  </ItemGroup>
+
+</Project>

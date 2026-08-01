@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="RainBird.Protocol.Tests/RainBird.Protocol.Tests.csproj" />
+  <Project Path="RainBird.Protocol/RainBird.Protocol.csproj" />
+  <Project Path="RainBird.Server.Tests/RainBird.Server.Tests.csproj" />
+  <Project Path="RainBird.Server/RainBird.Server.csproj" />
+  <Project Path="RainBird.Simulator/RainBird.Simulator.csproj" />
+</Solution>

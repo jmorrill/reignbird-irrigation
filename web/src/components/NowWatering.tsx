@@ -1,0 +1,301 @@
+import { AnimatePresence, motion } from 'framer-motion';
+import { observer } from 'mobx-react-lite';
+import { useStore } from '../stores/RootStore';
+import { DropIcon, SkipIcon, StopIcon } from './Icons';
+import { Button } from './ui';
+
+/** Seconds to m:ss. */
+export function formatCountdown(seconds: number): string {
+  const safe = Math.max(0, seconds);
+  const minutes = Math.floor(safe / 60);
+  const rest = safe % 60;
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
+}
+
+/**
+ * A ring that drains as the run completes.
+ *
+ * The controller reports seconds remaining but never the original duration, so
+ * the total is remembered from the highest value seen for this run. That is the
+ * only way to draw a truthful progress arc from this protocol.
+ */
+export const CountdownRing = observer(function CountdownRing({
+  remaining,
+  total,
+  size = 132,
+}: {
+  remaining: number;
+  total: number;
+  size?: number;
+}) {
+  const stroke = 7;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const progress = total > 0 ? Math.min(1, Math.max(0, remaining / total)) : 0;
+
+  return (
+    <div className="ring" style={{ width: size, height: size }}>
+      <svg width={size} height={size} aria-hidden>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="var(--water-line)"
+          strokeWidth={stroke}
+          opacity={0.4}
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="var(--water)"
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          animate={{ strokeDashoffset: circumference * (1 - progress) }}
+          transition={{ duration: 0.9, ease: 'linear' }}
+        />
+      </svg>
+      <div className="ring__center">
+        <span className="ring__value data">{formatCountdown(remaining)}</span>
+        <span className="ring__unit">remaining</span>
+      </div>
+    </div>
+  );
+});
+
+/**
+ * The Events hero. It answers one question — what is the system doing — and
+ * changes character completely depending on the answer, rather than being a
+ * fixed panel with variable text.
+ */
+export const StatusHero = observer(function StatusHero() {
+  const { controllers, zones } = useStore();
+  const state = controllers.state;
+
+  if (!controllers.selected) return null;
+
+  if (!controllers.online) {
+    return (
+      <div className="hero hero--offline">
+        <div className="hero__body">
+          <div className="eyebrow">Controller</div>
+          <p className="hero__headline">Not responding</p>
+          <p className="hero__detail">
+            {controllers.selected.lastError ??
+              `Nothing answered at ${controllers.selected.host}. Check the controller is powered on and on the same network.`}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state?.isWatering) {
+    const zone = zones.byStation(state.activeStation);
+    return <WateringHero zoneName={zone?.name ?? `Zone ${state.activeStation}`} station={state.activeStation} />;
+  }
+
+  if ((state?.rainDelayDays ?? 0) > 0) {
+    return <DelayHero days={state!.rainDelayDays} />;
+  }
+
+  return <IdleHero />;
+});
+
+const WateringHero = observer(function WateringHero({
+  zoneName,
+  station,
+}: {
+  zoneName: string;
+  station: number;
+}) {
+  const { controllers } = useStore();
+  const remaining = controllers.remainingSeconds;
+  const total = useRunTotal(station, remaining);
+
+  return (
+    <motion.div
+      className="hero hero--watering"
+      initial={{ opacity: 0, scale: 0.99 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.25 }}
+    >
+      <div className="hero__flow" aria-hidden />
+      <div className="hero__body">
+        <div className="hero__eyebrow">
+          <span className="hero__pulse" aria-hidden />
+          <span className="eyebrow">Watering now</span>
+        </div>
+        <p className="hero__headline">{zoneName}</p>
+        <p className="hero__detail data">Station {String(station).padStart(2, '0')}</p>
+
+        <div className="hero__actions">
+          <Button tone="primary" icon={<StopIcon size={17} />} onClick={() => controllers.stop()}>
+            Stop
+          </Button>
+          <Button tone="quiet" icon={<SkipIcon size={17} />} onClick={() => controllers.advance()}>
+            Next zone
+          </Button>
+        </div>
+      </div>
+
+      <CountdownRing remaining={remaining} total={total} />
+    </motion.div>
+  );
+});
+
+const DelayHero = observer(function DelayHero({ days }: { days: number }) {
+  const { controllers, weather } = useStore();
+  const skip = weather.recentSkip;
+
+  return (
+    <div className="hero hero--delay">
+      <div className="hero__body">
+        <div className="eyebrow">Watering paused</div>
+        <p className="hero__headline">
+          <span className="data hero__number">{days}</span> {days === 1 ? 'day' : 'days'} left
+        </p>
+        <p className="hero__detail">
+          {skip?.details ?? 'Automatic watering resumes when the delay ends.'}
+        </p>
+        <div className="hero__actions">
+          <Button tone="quiet" onClick={() => controllers.setRainDelay(0)}>
+            Resume watering
+          </Button>
+        </div>
+      </div>
+      <div className="hero__glyph" aria-hidden>
+        <DropIcon size={80} strokeWidth={1} />
+      </div>
+    </div>
+  );
+});
+
+const IdleHero = observer(function IdleHero() {
+  const { controllers, schedules, zones } = useStore();
+  const next = nextRunDescription(schedules.programs);
+
+  return (
+    <div className="hero hero--idle">
+      <div className="hero__body">
+        <div className="eyebrow">Idle</div>
+        <p className="hero__headline">{next.headline}</p>
+        <p className="hero__detail">{next.detail}</p>
+        <div className="hero__actions">
+          <Button
+            tone="quiet"
+            onClick={() => controllers.setRainDelay(1)}
+            disabled={!controllers.online}
+          >
+            Delay a day
+          </Button>
+          <Button
+            tone="ghost"
+            onClick={() => controllers.testAll(2)}
+            disabled={!controllers.online || zones.zones.length === 0}
+          >
+            Test all zones
+          </Button>
+        </div>
+      </div>
+      <div className="hero__glyph" aria-hidden>
+        <DropIcon size={80} strokeWidth={1} />
+      </div>
+    </div>
+  );
+});
+
+/** The compact version, shown on every tab except Events. */
+export const NowWateringBar = observer(function NowWateringBar() {
+  const { controllers, zones } = useStore();
+  const watering = controllers.isWatering;
+  const zone = zones.byStation(controllers.activeStation);
+
+  return (
+    <AnimatePresence>
+      {watering && (
+        <motion.div
+          className="nowbar"
+          initial={{ y: 70, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 70, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+        >
+          <span className="nowbar__pulse" aria-hidden />
+          <span className="nowbar__text">
+            <span className="nowbar__zone">{zone?.name ?? `Zone ${controllers.activeStation}`}</span>
+            <span className="nowbar__time data">{formatCountdown(controllers.remainingSeconds)} left</span>
+          </span>
+          <button className="nowbar__action" onClick={() => controllers.advance()} aria-label="Next zone">
+            <SkipIcon size={17} />
+          </button>
+          <button className="nowbar__action nowbar__action--stop" onClick={() => controllers.stop()}>
+            <StopIcon size={15} />
+            Stop
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+});
+
+/* ------------------------------------------------------------------ helpers */
+
+import { useEffect, useRef, useState } from 'react';
+
+/**
+ * Remembers the largest remaining-time seen for the current run so the ring has
+ * something to measure against. Resets when the station changes.
+ */
+function useRunTotal(station: number, remaining: number): number {
+  const [total, setTotal] = useState(remaining);
+  const currentStation = useRef(station);
+
+  useEffect(() => {
+    if (currentStation.current !== station) {
+      currentStation.current = station;
+      setTotal(remaining);
+      return;
+    }
+    setTotal((previous) => (remaining > previous ? remaining : previous));
+  }, [station, remaining]);
+
+  return Math.max(total, remaining, 1);
+}
+
+import type { Program } from '../api/types';
+import { describeFrequency, formatStartTime } from '../stores/ScheduleStore';
+
+function nextRunDescription(programs: Program[]): { headline: string; detail: string } {
+  const active = programs.filter((program) => program.enabled);
+
+  if (active.length === 0) {
+    return {
+      headline: 'No watering scheduled',
+      detail: 'Set up a program to water automatically, or run a zone by hand.',
+    };
+  }
+
+  const soonest = active
+    .map((program) => ({
+      program,
+      start: Math.min(...program.startTimes.filter((time) => time >= 0 && time < 1440)),
+    }))
+    .filter((entry) => Number.isFinite(entry.start))
+    .sort((a, b) => a.start - b.start)[0];
+
+  if (!soonest) {
+    return {
+      headline: 'No start time set',
+      detail: 'Programs are configured but none has a start time yet.',
+    };
+  }
+
+  return {
+    headline: `Next run at ${formatStartTime(soonest.start)}`,
+    detail: `Program ${soonest.program.label} · ${describeFrequency(soonest.program)} · ${soonest.program.totalMinutes} min total`,
+  };
+}

@@ -1,0 +1,175 @@
+/*
+ * Design tokens.
+ *
+ * Direction: pre-dawn irrigation. Sprinklers run at 5:15am, so the palette is
+ * built from that hour — deep navy before sunrise, the blue of moving water, wet
+ * turf green, and the amber that arrives with the light. Colour is used almost
+ * nowhere except where it carries meaning; the interface is otherwise neutral so
+ * that "water is running right now" is unmistakable.
+ */
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../fonts/archivo-400-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../fonts/plexmono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../fonts/plexmono-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../fonts/plexmono-600.woff2') format('woff2');
+}
+
+:root {
+  /* Type ------------------------------------------------------------------ */
+  --font-ui: 'Archivo', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+
+  --text-xs: 0.6875rem;   /* 11px — eyebrow labels */
+  --text-sm: 0.8125rem;   /* 13px — secondary */
+  --text-base: 0.9375rem; /* 15px — body */
+  --text-lg: 1.0625rem;   /* 17px — card titles */
+  --text-xl: 1.375rem;    /* 22px — section heads */
+  --text-2xl: 1.875rem;   /* 30px — screen titles */
+  --text-3xl: 2.75rem;    /* 44px — the live countdown */
+  --text-4xl: 4rem;       /* 64px — hero numerals */
+
+  /* Space ----------------------------------------------------------------- */
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.25rem;
+  --s6: 1.5rem;
+  --s8: 2rem;
+  --s10: 2.5rem;
+  --s14: 3.5rem;
+
+  /* Form ------------------------------------------------------------------ */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 22px;
+  --r-full: 999px;
+
+  --rail-width: 3px;      /* the manifold line on the zones screen */
+  --tap-width: 18px;      /* the lateral branching off it */
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* Light — the default. A cool, bright morning. */
+:root,
+:root[data-theme='light'] {
+  --bg: #f4f6f9;
+  --bg-sunk: #eaeef3;
+  --surface: #ffffff;
+  --surface-2: #f7f9fb;
+  --line: #e1e6ed;
+  --line-strong: #cdd5e0;
+
+  --text: #0f1724;
+  --text-2: #56637a;
+  --text-3: #8b97ab;
+
+  --water: #1f6fe0;
+  --water-soft: #e8f0fd;
+  --water-line: #b9d3f8;
+
+  --turf: #1f8f4e;
+  --turf-soft: #e6f5eb;
+
+  --dawn: #c47a15;
+  --dawn-soft: #fdf2e0;
+
+  --clay: #c4402c;
+  --clay-soft: #fcecea;
+
+  --shadow-card: 0 1px 2px rgb(16 23 36 / 0.04), 0 1px 3px rgb(16 23 36 / 0.06);
+  --shadow-lift: 0 8px 24px rgb(16 23 36 / 0.10), 0 2px 6px rgb(16 23 36 / 0.06);
+  --shadow-rise: 0 20px 48px rgb(16 23 36 / 0.16);
+}
+
+/* Dark — the hour the system actually runs. */
+:root[data-theme='dark'] {
+  --bg: #0a1017;
+  --bg-sunk: #070b11;
+  --surface: #121c28;
+  --surface-2: #18242f;
+  --line: #22303f;
+  --line-strong: #32404f;
+
+  --text: #e8eef6;
+  --text-2: #94a4b8;
+  --text-3: #64748b;
+
+  --water: #4f9bff;
+  --water-soft: #12263f;
+  --water-line: #245089;
+
+  --turf: #46c37c;
+  --turf-soft: #0f2a1c;
+
+  --dawn: #eba63f;
+  --dawn-soft: #2e2211;
+
+  --clay: #e8705a;
+  --clay-soft: #331713;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.25);
+  --shadow-lift: 0 8px 24px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.3);
+  --shadow-rise: 0 20px 48px rgb(0 0 0 / 0.6);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0a1017;
+    --bg-sunk: #070b11;
+    --surface: #121c28;
+    --surface-2: #18242f;
+    --line: #22303f;
+    --line-strong: #32404f;
+
+    --text: #e8eef6;
+    --text-2: #94a4b8;
+    --text-3: #64748b;
+
+    --water: #4f9bff;
+    --water-soft: #12263f;
+    --water-line: #245089;
+
+    --turf: #46c37c;
+    --turf-soft: #0f2a1c;
+
+    --dawn: #eba63f;
+    --dawn-soft: #2e2211;
+
+    --clay: #e8705a;
+    --clay-soft: #331713;
+
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px rgb(0 0 0 / 0.25);
+    --shadow-lift: 0 8px 24px rgb(0 0 0 / 0.45), 0 2px 6px rgb(0 0 0 / 0.3);
+    --shadow-rise: 0 20px 48px rgb(0 0 0 / 0.6);
+  }
+}

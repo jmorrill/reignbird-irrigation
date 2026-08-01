@@ -1,0 +1,21 @@
+<!--
+  Source image for every generated app icon (see `npm run icons`).
+
+  The mark is the same water drop as favicon.svg, redrawn at 512 so the stroke
+  stays crisp at launcher sizes. The favicon keeps its flat fill: a gradient that
+  reads as depth at 512px just turns to mud at 32px.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="field" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b86ee"/>
+      <stop offset="1" stop-color="#1a5fc4"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#field)"/>
+
+  <path d="M256 104c73.6 83.2 118.4 144 118.4 198.4a118.4 118.4 0 1 1-236.8 0C137.6 248 182.4 187.2 256 104Z"
+        fill="#ffffff" fill-opacity="0.14"
+        stroke="#ffffff" stroke-width="30" stroke-linejoin="round"/>
+</svg>

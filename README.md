@@ -1,0 +1,224 @@
+# Reignbird
+
+A local-first app for Rain Bird irrigation controllers. It talks directly to a Rain
+Bird LNK/LNK2 WiFi controller over your LAN — no cloud account, no internet
+dependency for anything that matters — in a modern, responsive interface.
+
+Rain Bird publishes no specification for the device protocol. The reference this
+project works from, checked throughout against a physical controller, is in
+[`docs/rainbird-protocol.md`](docs/rainbird-protocol.md).
+
+Reignbird is an independent project. It is not affiliated with, endorsed by, or
+supported by Rain Bird Corporation.
+
+---
+
+## What it does
+
+| | |
+|---|---|
+| **Control** | Run a zone, run a program, test every zone, stop, skip to the next zone |
+| **Live state** | What is watering right now, with a countdown that ticks in real time |
+| **Plans** | Watering schedules this app runs itself: several passes a day, cycle and soak, watering windows — arrangements the hardware cannot express |
+| **Schedules** | Read and write the controller's own programs, on firmware that exposes them |
+| **History** | Every run logged, with a month calendar and estimated water use |
+| **Weather** | Five-day forecast, and rain / freeze / wind / saturation skips |
+| **Zones** | Names, photos, plant and soil type, sprinkler head, nozzle flow rate |
+| **Diagnostics** | A console showing the raw SIP bytes going to and from the controller |
+| **Installable** | A PWA: installs to a home screen or dock, runs in its own window, and its shell loads offline |
+
+The controller itself stores none of the metadata, history or weather. The things a
+comparable product would keep in its cloud, this app keeps in a local SQLite file.
+
+## What it can't do
+
+Rain Bird residential hardware has no soil moisture sensor and no flow meter, so
+anything depending on those is either absent or clearly labelled an estimate. The
+feature-by-feature analysis is in [`docs/feature-scope.md`](docs/feature-scope.md).
+Bluetooth-only controllers (TBOS-BT, ESP-BAT-BT) are out of scope: they have no HTTP
+endpoint.
+
+---
+
+## Running it
+
+Requirements: .NET 10 SDK and Node 20+.
+
+### With the simulator — no hardware needed
+
+```bash
+cd web && npm install && npm run build
+cd ../src/RainBird.Server
+RainBird__UseSimulator=true dotnet run --urls http://127.0.0.1:5056
+```
+
+Open <http://127.0.0.1:5056>. A virtual ESP-ME3 with eight named zones and six weeks
+of watering history is seeded on first run, so every screen has something real in it.
+
+### Against a real controller
+
+```bash
+cd web && npm install && npm run build
+cd ../src/RainBird.Server && dotnet run
+```
+
+Open <http://localhost:5056>. It binds every interface, so it is also reachable at
+this machine's address on your network — see [Security notes](#security-notes) before
+leaving it that way.
+
+Then add your controller from **Settings → Add controller**: its IP address on your
+network and the device password set on the LNK module. Coordinates are optional and
+only needed for the forecast and weather skips.
+
+### Installing it as an app
+
+Open it in Chrome or Edge and use **Settings → Install**, or the install icon in the
+address bar. On iOS, Share → Add to Home Screen.
+
+**It has to be served over HTTPS, or from localhost.** Browsers refuse to register a
+service worker on any other origin, so over plain HTTP at a LAN or tailnet address
+there is no install option and no offline support — the app still works, it just
+stays an ordinary tab. Settings says so explicitly, naming the address it is on,
+rather than leaving an install button mysteriously absent.
+
+Over Tailscale the tidy fix is `tailscale serve`, which fronts the app with a real
+certificate for your machine's tailnet name:
+
+```bash
+tailscale serve --bg 5056        # then open https://<machine>.<tailnet>.ts.net
+```
+
+That needs HTTPS certificates enabled for the tailnet (admin console → DNS → HTTPS
+Certificates).
+
+What being installed actually buys you:
+
+- The app shell — HTML, JS, CSS, fonts, icons — is precached, so it opens instantly
+  and renders even with the server down.
+- **Controller state is never cached.** Every `/api` request is network-only. A
+  cached response could show a zone as idle while it is watering, and the whole point
+  of that screen is to be trusted. Offline, the app says it cannot reach the server
+  rather than showing stale state as though it were live.
+- Zone photos are cached and revalidated in the background.
+- A new build announces itself with a banner instead of reloading underneath you,
+  which would otherwise discard whatever you were in the middle of editing.
+
+### Developing
+
+Two terminals:
+
+```bash
+cd src/RainBird.Server && RainBird__UseSimulator=true dotnet run --urls http://127.0.0.1:5056
+cd web && npm run dev          # http://localhost:5273
+```
+
+The Vite dev server proxies `/api`, `/media` and `/hubs` to the backend, so
+development is same-origin exactly like production. The service worker is disabled in
+dev — otherwise every change would be served from a cache you had to clear by hand.
+
+App icons are generated from one source SVG and committed, so a normal build never
+regenerates them. After editing `web/public/icon.svg`:
+
+```bash
+cd web && npm run icons
+```
+
+### Tests
+
+```bash
+cd src && dotnet test
+```
+
+185 tests. The protocol suite covers the crypto (including both integrity-hash
+conventions), the SIP codec against frames captured from real hardware, the universal
+transport against known-good request templates, NAK handling,
+capability probing, schedule round-trips and the full HTTP path. The server suite
+covers the scheduling logic: cycle-and-soak interleaving, seasonal adjust, frequency
+and start-time selection.
+
+---
+
+## Layout
+
+```
+docs/                      protocol reference, feature scope, design spec
+src/
+  RainBird.Protocol/       the protocol: crypto, SIP codec, universal CDT, typed client
+  RainBird.Protocol.Tests/ xUnit
+  RainBird.Simulator/      a virtual controller speaking the real wire protocol
+  RainBird.Server/         ASP.NET Core 10 — API, SignalR, EF Core/SQLite, plan engine
+  RainBird.Server.Tests/   xUnit — the scheduling logic
+web/                       React 19 + TypeScript + MobX + Framer Motion
+```
+
+`RainBird.Protocol` has no dependency on ASP.NET or the database and can be lifted
+out and reused. `RainBird.Simulator` exists so the whole stack is verifiable without
+a sprinkler controller on the desk — which is also what makes the test suite
+meaningful.
+
+---
+
+## How it talks to the controller
+
+Summarised from [`docs/rainbird-protocol.md`](docs/rainbird-protocol.md):
+
+- **Transport** — JSON-RPC 2.0 in an encrypted body, `POST http://<ip>/stick`, or
+  `https://…` on newer firmware, whose self-signed certificate is pinned against the
+  the hardware itself presents
+- **Encryption** — AES-256-CBC, key = SHA-256(password), zero padding, framed as
+  `SHA256(plaintext) || IV || ciphertext`
+- **Commands** — a `tunnelSip` RPC wrapping single-byte SIP commands; 46 of them,
+  against the 23 in the resource file public libraries were derived from
+- **Schedules** — page-structured. Program info at page `15+n`, start times at
+  `95+n`, and run times at `128 + ⌊(station−1)/2⌋`, two stations per page with one
+  16-bit run time per program
+
+Findings worth calling out, because they will bite any other implementation:
+
+1. **The integrity hash is asymmetric.** The app hashes the *unpadded* plaintext when
+   sending and the *padded* plaintext when verifying. The two coincide only when a
+   payload is exactly block-aligned, which is why it is easy to miss.
+2. **Disabling a zone is not a flag.** It is zeroed run times across every program.
+3. **Station masks are little-endian.** Byte 0 covers stations 1-8. Read the other
+   way, a ten-zone controller decodes as stations 17, 18 and 25-32.
+4. **`ManuallyRunStation` takes a 16-bit station**, giving a four-byte command. The
+   three-byte form is rejected outright.
+5. **Current firmware drops the legacy schedule pages entirely.** See
+   [`docs/rainbird-universal-protocol.md`](docs/rainbird-universal-protocol.md) for
+   the interface that replaces them.
+
+---
+
+## Security notes
+
+- **It has no authentication.** Anyone who can reach the port can run the sprinklers.
+  It assumes a trusted network — do not forward the port from the internet.
+- Binds to `0.0.0.0:5056`, so it is reachable from the whole local network and from a
+  Tailscale tailnet. It logs a warning at startup saying so. To keep it on this
+  machine only, set `Urls` in `appsettings.json` to `http://127.0.0.1:5056`; to reach
+  it over Tailscale without also serving the LAN, bind just those two addresses:
+
+  ```jsonc
+  "Urls": "http://100.x.y.z:5056;http://127.0.0.1:5056"   // your tailnet IP
+  ```
+- Controller passwords are encrypted at rest with ASP.NET Core Data Protection, keyed
+  to `src/RainBird.Server/store/keys`. Losing that directory means re-adding your
+  controllers.
+- Rain Bird's cloud relay is deliberately not implemented. The protocol supports it;
+  this app stays on your network.
+
+## Status
+
+Verified against a physical **ESP-ME3** (model `0009`, protocol 2.12, firmware 3.11)
+as well as the simulator. On that hardware the app probes capabilities, reads live
+state, controls zones, and runs a watering plan end to end — opening each zone in
+turn and closing it on schedule.
+
+That controller exposes neither the legacy schedule pages nor a way to switch itself
+off, which is what makes the plan engine the only route to scheduling on it. Its own
+run times can still be cleared through the universal transport, so there is one
+schedule rather than two.
+
+Other model families are handled by capability probing rather than assumption, but
+have not been exercised: the ESP-TM2 packs run times differently, and the
+non-program-based models (RZXe, ST8x) schedule per zone.
