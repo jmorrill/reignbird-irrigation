@@ -6,6 +6,7 @@ import type {
   Capabilities,
   Controller,
   ControllerState,
+  Place,
   Plan,
   PlanPreset,
   PlanRun,
@@ -156,6 +157,9 @@ const put = <T>(path: string, body: unknown) =>
 const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
 
 export const api = {
+  /** Postcode or place-name lookup, for people who do not know their latitude. */
+  places: (query: string) => get<Place[]>(`/api/settings/places?q=${encodeURIComponent(query)}`),
+
   health: () => get<{ status: string; simulator: boolean; version: string }>('/api/health'),
 
   auth: {

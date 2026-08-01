@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import type { SipExchange } from '../api/types';
 import { InstallIcon, PlusIcon, SensorIcon } from '../components/Icons';
+import { LocationField } from '../components/LocationField';
 import {
   Button,
   Card,
@@ -54,7 +55,7 @@ export const SettingsScreen = observer(function SettingsScreen() {
 /* -------------------------------------------------------------- controller */
 
 const ControllerPanel = observer(function ControllerPanel() {
-  const { controllers } = useStore();
+  const { controllers, ui } = useStore();
   const controller = controllers.selected!;
   const capabilities = controllers.capabilities;
   const [busy, setBusy] = useState(false);
@@ -112,6 +113,9 @@ const ControllerPanel = observer(function ControllerPanel() {
           }}
         >
           Sync clock
+        </Button>
+        <Button size="sm" onClick={() => ui.setEditControllerOpen(true)}>
+          Edit
         </Button>
         <Button
           size="sm"
@@ -700,7 +704,10 @@ export const AddControllerSheetContent = observer(function AddControllerSheetCon
   const [host, setHost] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [coords, setCoords] = useState('');
+  const [latitude, setLatitude] = useState<number | null>(null);
+  const [longitude, setLongitude] = useState<number | null>(null);
+  const [timeZoneId, setTimeZoneId] = useState<string | null>(null);
+  const [placeLabel, setPlaceLabel] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
@@ -711,16 +718,13 @@ export const AddControllerSheetContent = observer(function AddControllerSheetCon
 
     setBusy(true);
     try {
-      const [latitude, longitude] = coords
-        .split(',')
-        .map((part) => Number.parseFloat(part.trim()));
-
       await controllers.addController({
         host: host.trim(),
         password,
         name: name.trim() || undefined,
-        latitude: Number.isFinite(latitude) ? latitude : null,
-        longitude: Number.isFinite(longitude) ? longitude : null,
+        latitude,
+        longitude,
+        timeZoneId: timeZoneId ?? undefined,
       });
       onDone();
     } catch (error) {
@@ -745,12 +749,22 @@ export const AddControllerSheetContent = observer(function AddControllerSheetCon
         <TextInput value={name} onChange={setName} placeholder="Backyard Controller" />
       </Field>
 
-      <Field
-        label="Coordinates"
-        hint="Optional, as latitude, longitude. Needed for the forecast and weather skips."
-      >
-        <TextInput value={coords} onChange={setCoords} placeholder="39.7392, -104.9903" />
-      </Field>
+      <LocationField
+        latitude={latitude}
+        longitude={longitude}
+        label={placeLabel}
+        onPicked={(place) => {
+          setLatitude(place.latitude);
+          setLongitude(place.longitude);
+          setPlaceLabel(place.label);
+          if (place.timeZoneId) setTimeZoneId(place.timeZoneId);
+        }}
+        onCleared={() => {
+          setLatitude(null);
+          setLongitude(null);
+          setPlaceLabel(null);
+        }}
+      />
 
       <Button tone="primary" full size="lg" onClick={submit} disabled={busy}>
         {busy ? 'Connecting…' : 'Connect'}
@@ -760,3 +774,105 @@ export const AddControllerSheetContent = observer(function AddControllerSheetCon
 });
 
 export { Select };
+
+/**
+ * Changes a controller that already exists.
+ *
+ * Everything here was previously fixed at the moment the controller was added: a
+ * typo in the name, a controller that moved to a new IP, or a password changed on
+ * the LNK module all meant deleting it and starting again — which also threw away
+ * the zone names, photos and watering history.
+ *
+ * The password field is left blank rather than pre-filled, because it cannot be
+ * read back; blank means "leave it alone".
+ */
+export const EditControllerSheetContent = observer(function EditControllerSheetContent({
+  onDone,
+}: {
+  onDone: () => void;
+}) {
+  const { controllers, ui } = useStore();
+  const controller = controllers.selected;
+
+  const [name, setName] = useState(controller?.name ?? '');
+  const [host, setHost] = useState(controller?.host ?? '');
+  const [password, setPassword] = useState('');
+  const [latitude, setLatitude] = useState<number | null>(controller?.latitude ?? null);
+  const [longitude, setLongitude] = useState<number | null>(controller?.longitude ?? null);
+  const [timeZoneId, setTimeZoneId] = useState<string | null>(controller?.timeZoneId ?? null);
+  const [placeLabel, setPlaceLabel] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  if (!controller) return null;
+
+  const save = async () => {
+    if (!host.trim()) {
+      ui.notify('bad', 'Address required', 'A controller needs an address on your network.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await controllers.updateController(controller.id, {
+        name: name.trim() || controller.name,
+        host: host.trim(),
+        // Only sent when something was typed. Sending an empty string would set the
+        // device password to nothing and lock the app out of the controller.
+        ...(password ? { password } : {}),
+        ...(latitude !== null && longitude !== null ? { latitude, longitude } : {}),
+        ...(timeZoneId ? { timeZoneId } : {}),
+      });
+
+      ui.notify('good', 'Controller updated');
+      onDone();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not save those changes.';
+      ui.notify('bad', 'Not saved', message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="form-stack">
+      <Field label="Name" hint="Shown at the top of every screen.">
+        <TextInput value={name} onChange={setName} placeholder="Backyard Controller" />
+      </Field>
+
+      <Field label="IP address" hint="Change this if the controller moved to a new address.">
+        <TextInput value={host} onChange={setHost} placeholder="192.168.1.50" />
+      </Field>
+
+      <Field label="Device password" hint="Leave blank to keep the current one.">
+        <TextInput value={password} onChange={setPassword} type="password" placeholder="Unchanged" />
+      </Field>
+
+      <LocationField
+        latitude={latitude}
+        longitude={longitude}
+        label={placeLabel}
+        onPicked={(place) => {
+          setLatitude(place.latitude);
+          setLongitude(place.longitude);
+          setPlaceLabel(place.label);
+          if (place.timeZoneId) setTimeZoneId(place.timeZoneId);
+        }}
+        onCleared={() => {
+          setLatitude(null);
+          setLongitude(null);
+          setPlaceLabel(null);
+        }}
+      />
+
+      {timeZoneId && (
+        <p className="muted">
+          Watering runs on <strong>{timeZoneId}</strong> time.
+        </p>
+      )}
+
+      <Button tone="primary" full size="lg" onClick={save} disabled={busy}>
+        {busy ? 'Saving…' : 'Save changes'}
+      </Button>
+    </div>
+  );
+});

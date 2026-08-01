@@ -907,6 +907,24 @@ public static class Endpoints
             TimeZoneInfo.GetSystemTimeZones()
                 .Select(tz => new { id = tz.Id, name = tz.DisplayName })
                 .ToList()));
+
+        // Takes a postcode or a place name, because nobody knows their latitude. Comes
+        // back with the time zone too, which saves picking it out of four hundred.
+        group.MapGet("/places", async (
+            string? q, GeocodingService geocoding, CancellationToken ct) =>
+        {
+            if (string.IsNullOrWhiteSpace(q)) return Results.Ok(Array.Empty<object>());
+
+            var places = await geocoding.SearchAsync(q, ct: ct);
+
+            return Results.Ok(places.Select(place => new
+            {
+                label = GeocodingService.Describe(place),
+                latitude = place.Latitude,
+                longitude = place.Longitude,
+                timeZoneId = place.TimeZoneId,
+            }));
+        });
     }
 
     // ---------------------------------------------------------- diagnostics

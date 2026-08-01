@@ -244,29 +244,30 @@
 
 /* ------------------------------------------------------------------ usage */
 
+/* Three equal columns rather than a baseline row with big gaps. Equal columns keep
+   the labels lined up whatever the numbers happen to be, which a flex row does not:
+   a four-digit figure next to a single digit pushed everything out of step. */
 .usage__figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s8);
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s4);
 }
 
 .usage__figure {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
+/* Sized to fit three across on a phone. The old lead figure was 64px, which only
+   worked because the other two were half that. */
 .usage__value {
-  font-size: var(--text-4xl);
+  font-size: var(--text-2xl);
   font-weight: 600;
-  letter-spacing: -0.045em;
-  line-height: 1;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
 }
 
-.usage__figure--minor .usage__value {
-  font-size: var(--text-2xl);
-  color: var(--text-2);
-}
 
 .usage__unit {
   margin-top: var(--s2);

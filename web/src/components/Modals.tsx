@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef, useState } from 'react';
 import type { FrequencyType, PlantType, SoilType, SprinklerType, SunExposure } from '../api/types';
-import { AddControllerSheetContent } from '../screens/SettingsScreen';
+import { AddControllerSheetContent, EditControllerSheetContent } from '../screens/SettingsScreen';
 import { HEAD_LABELS, PLANT_LABELS } from '../screens/ZonesScreen';
 import { useStore } from '../stores/RootStore';
 import { FREQUENCY_OPTIONS, UNSET_START_TIME, formatStartTime } from '../stores/ScheduleStore';
@@ -28,6 +28,7 @@ export const Modals = observer(function Modals() {
       <ProgramEditorSheet />
       <PlanModals />
       <AddControllerSheet />
+      <EditControllerSheet />
     </>
   );
 });
@@ -444,6 +445,20 @@ const AddControllerSheet = observer(function AddControllerSheet() {
       title="Add a controller"
     >
       <AddControllerSheetContent onDone={() => ui.setAddControllerOpen(false)} />
+    </Sheet>
+  );
+});
+
+const EditControllerSheet = observer(function EditControllerSheet() {
+  const { ui, controllers } = useStore();
+
+  return (
+    <Sheet
+      open={ui.editControllerOpen && controllers.selected !== null}
+      onClose={() => ui.setEditControllerOpen(false)}
+      title="Edit controller"
+    >
+      <EditControllerSheetContent onDone={() => ui.setEditControllerOpen(false)} />
     </Sheet>
   );
 });

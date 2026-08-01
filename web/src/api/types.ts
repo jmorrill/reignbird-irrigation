@@ -301,3 +301,11 @@ export interface Session {
   expiresUtc: string;
   user: Account;
 }
+
+/** A place the geocoder matched, with everything needed to use it. */
+export interface Place {
+  label: string;
+  latitude: number;
+  longitude: number;
+  timeZoneId: string | null;
+}

@@ -144,6 +144,7 @@ builder.Services.AddSingleton<SkipEvaluator>();
 builder.Services.AddScoped<ControllerService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<WeatherService>();
+builder.Services.AddScoped<GeocodingService>();
 
 // The simulator lets the whole app run — and be demonstrated — with no hardware.
 var useSimulator = builder.Configuration.GetValue("RainBird:UseSimulator", false);

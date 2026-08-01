@@ -333,10 +333,19 @@ export class ControllerStore {
     await this.perform(() => api.control.syncClock(this.selectedId!), 'Controller clock synced');
   }
 
-  async addController(body: { host: string; password: string; name?: string; latitude?: number | null; longitude?: number | null }) {
+  async addController(body: {
+    host: string;
+    password: string;
+    name?: string;
+    latitude?: number | null;
+    longitude?: number | null;
+    timeZoneId?: string;
+  }) {
     const controller = await api.controllers.add({
       ...body,
-      timeZoneId: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      // The zone that came with the chosen location wins: the controller is where
+      // the sprinklers are, which is not necessarily where this browser is.
+      timeZoneId: body.timeZoneId ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     });
     runInAction(() => {
       this.controllers.push(controller);
@@ -344,6 +353,36 @@ export class ControllerStore {
     await this.selectController(controller.id);
     this.root.ui.notify('good', `${controller.name} added`, controller.modelSeries);
     return controller;
+  }
+
+  /**
+   * Saves changes to an existing controller.
+   *
+   * Reloads afterwards rather than patching the local copy: changing the address or
+   * the password can change whether the controller answers at all, and the server's
+   * reply is the only thing that knows.
+   */
+  async updateController(
+    id: number,
+    body: Partial<{
+      name: string;
+      host: string;
+      password: string;
+      latitude: number;
+      longitude: number;
+      timeZoneId: string;
+    }>,
+  ) {
+    const updated = await api.controllers.update(id, body);
+
+    runInAction(() => {
+      const index = this.controllers.findIndex((c) => c.id === id);
+      if (index >= 0) this.controllers[index] = updated;
+    });
+
+    // The forecast follows the location, so a moved controller needs its weather again.
+    await this.root.onControllerChanged(id);
+    return updated;
   }
 
   async removeController(id: number) {

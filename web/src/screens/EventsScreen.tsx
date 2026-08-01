@@ -257,26 +257,38 @@ const UsagePanel = observer(function UsagePanel() {
   });
 
   const max = Math.max(...usage.byZone.map((zone) => zone.gallons), 1);
+
+  const litres = usage.gallonsUsed * 3.785;
   const volume = weather.units.useMetric
-    ? { value: Math.round(usage.gallonsUsed * 3.785), unit: 'litres' }
-    : { value: Math.round(usage.gallonsUsed), unit: 'gallons' };
+    ? { value: formatVolume(litres), unit: 'litres' }
+    : { value: formatVolume(usage.gallonsUsed), unit: 'gallons' };
+
+  // Rounding to whole hours reports a real ten-minute run as "0 hours of watering",
+  // which reads as a bug rather than as a small number.
+  const duration = usage.totalMinutes < 60
+    ? { value: String(Math.round(usage.totalMinutes)), unit: plural(Math.round(usage.totalMinutes), 'minute') }
+    : { value: String(Math.round(usage.totalMinutes / 60)), unit: plural(Math.round(usage.totalMinutes / 60), 'hour') };
 
   return (
     <section>
       <SectionHead eyebrow="Water use" title={`${monthLabel} so far`} />
       <Card>
+        {/* Three figures of equal standing, so they are set at equal weight. The
+            first used to be twice the size of the others, which on a baseline row
+            pushed its label out of line with theirs and read as a mistake rather
+            than as emphasis. */}
         <div className="usage__figures">
           <div className="usage__figure">
-            <span className="usage__value data">{volume.value.toLocaleString()}</span>
+            <span className="usage__value data">{volume.value}</span>
             <span className="usage__unit">{volume.unit}, estimated</span>
           </div>
-          <div className="usage__figure usage__figure--minor">
-            <span className="usage__value data">{Math.round(usage.totalMinutes / 60)}</span>
-            <span className="usage__unit">hours of watering</span>
+          <div className="usage__figure">
+            <span className="usage__value data">{duration.value}</span>
+            <span className="usage__unit">{duration.unit} of watering</span>
           </div>
-          <div className="usage__figure usage__figure--minor">
-            <span className="usage__value data">{usage.runCount}</span>
-            <span className="usage__unit">zone runs</span>
+          <div className="usage__figure">
+            <span className="usage__value data">{usage.runCount.toLocaleString()}</span>
+            <span className="usage__unit">zone {plural(usage.runCount, 'run')}</span>
           </div>
         </div>
 
@@ -305,3 +317,21 @@ const UsagePanel = observer(function UsagePanel() {
     </section>
   );
 });
+
+/** "1 run" but "2 runs". Naive on purpose: every word this is used on is regular. */
+function plural(count: number, word: string): string {
+  return count === 1 ? word : `${word}s`;
+}
+
+/**
+ * Water use, at a precision that does not overstate what is known.
+ *
+ * A short run rounds to zero whole gallons, and "0 gallons, estimated" next to a run
+ * that definitely happened looks broken. Under ten, one decimal place says small
+ * rather than none; above it, the decimal is noise on a number that was a
+ * calculation from a nozzle rating in the first place.
+ */
+function formatVolume(value: number): string {
+  if (value > 0 && value < 10) return value.toFixed(1);
+  return Math.round(value).toLocaleString();
+}

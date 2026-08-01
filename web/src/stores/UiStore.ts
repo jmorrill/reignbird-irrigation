@@ -31,6 +31,7 @@ export class UiStore {
 
   quickRunOpen = false;
   addControllerOpen = false;
+  editControllerOpen = false;
 
   /** Plan being edited: an id, 'new' for a blank one, or null when closed. */
   openPlan: number | 'new' | null = null;
@@ -90,6 +91,10 @@ export class UiStore {
 
   setAddControllerOpen(open: boolean) {
     this.addControllerOpen = open;
+  }
+
+  setEditControllerOpen(open: boolean) {
+    this.editControllerOpen = open;
   }
 
   openPlanEditor(planId: number | 'new') {
