@@ -1420,3 +1420,71 @@
   flex: none;
   padding: 0;
 }
+
+/* --------------------------------------------------------------- sign in */
+
+/* The whole viewport, because there is no shell yet — nothing else in the app is
+   reachable until this form is satisfied. */
+.signin {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--s5);
+  background: var(--bg);
+}
+
+.signin__card {
+  width: 100%;
+  max-width: 380px;
+  padding: var(--s6);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-lift);
+}
+
+.signin__mark {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: var(--s4);
+  border-radius: var(--r-md);
+  background: var(--water-soft);
+  color: var(--water);
+}
+
+.signin__title {
+  font-size: var(--text-xl);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.signin__sub {
+  margin-top: var(--s2);
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.signin__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  margin-top: var(--s5);
+}
+
+.signin__error {
+  font-size: var(--text-sm);
+  color: var(--clay);
+  background: var(--clay-soft);
+  padding: var(--s3);
+  border-radius: var(--r-sm);
+}
+
+/* Shown for the one request it takes to decide between sign-in and setup. Blank
+   on purpose: a spinner that lives for 100ms only ever reads as a flicker. */
+.boot {
+  min-height: 100dvh;
+  background: var(--bg);
+}

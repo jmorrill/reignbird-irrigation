@@ -91,7 +91,7 @@ public static class PlanEndpoints
 {
     public static void MapPlanApi(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/controllers/{id:int}").WithTags("Plans");
+        var group = app.MapGroup("/api/controllers/{id:int}").WithTags("Plans").RequireAuthorization();
 
         MapPresets(group);
         MapCrud(group);

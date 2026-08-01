@@ -10,6 +10,16 @@ obj/
 src/RainBird.Server/store/
 src/RainBird.Server/media/
 
+# The same state when running in Docker, where it is bind-mounted from the host.
+# REIGNBIRD_DATA can point anywhere; this covers the default.
+/data/
+
+# Local environment. Holds TZ, the host uid/gid, and possibly an admin password —
+# none of which belongs in the repository. .env.example is the committed version.
+.env
+.env.*
+!.env.example
+
 # Node
 node_modules/
 dist/

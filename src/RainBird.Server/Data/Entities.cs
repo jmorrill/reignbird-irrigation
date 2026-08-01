@@ -167,3 +167,32 @@ public class SettingRecord
     public string Key { get; set; } = "";
     public string Value { get; set; } = "";
 }
+
+/// <summary>
+/// Someone who may sign in. Every account is equal: anyone signed in can water,
+/// schedule, and add or remove other accounts.
+/// </summary>
+public class UserRecord
+{
+    public int Id { get; set; }
+
+    /// <summary>Compared case-insensitively, so "Sam" and "sam" are the same person.</summary>
+    [MaxLength(64)]
+    public string Username { get; set; } = "";
+
+    /// <summary>
+    /// PBKDF2 via ASP.NET Core's own password hasher, which carries its salt,
+    /// iteration count and format version inside the string. Never the password.
+    /// </summary>
+    public string PasswordHash { get; set; } = "";
+
+    /// <summary>
+    /// Changes whenever the account's credentials do. Every token carries the stamp
+    /// it was issued under, so changing a password or deleting an account takes
+    /// effect immediately instead of whenever the last token happens to expire.
+    /// </summary>
+    public Guid SecurityStamp { get; set; } = Guid.NewGuid();
+
+    public DateTimeOffset CreatedUtc { get; set; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? LastSignInUtc { get; set; }
+}

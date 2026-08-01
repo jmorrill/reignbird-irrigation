@@ -7,6 +7,7 @@ import { useStore } from '../stores/RootStore';
 import { FREQUENCY_OPTIONS, UNSET_START_TIME, formatStartTime } from '../stores/ScheduleStore';
 import { CameraIcon, CloseIcon, PlusIcon } from './Icons';
 import { PlanModals } from './PlanModals';
+import { useMediaUrl } from './useMediaUrl';
 import {
   Button,
   DayPicker,
@@ -120,6 +121,7 @@ const ZoneSheet = observer(function ZoneSheet() {
   const station = ui.openZone;
   const zone = station === null ? undefined : zones.byStation(station);
   const fileInput = useRef<HTMLInputElement>(null);
+  const photo = useMediaUrl(zone?.photoUrl);
 
   const [minutes, setMinutes] = useState(10);
 
@@ -147,8 +149,8 @@ const ZoneSheet = observer(function ZoneSheet() {
     >
       <div className="form-stack">
         <div className="zone-photo">
-          {zone.photoUrl ? (
-            <img src={zone.photoUrl} alt="" className="zone-photo__img" />
+          {photo ? (
+            <img src={photo} alt="" className="zone-photo__img" />
           ) : (
             <div className="zone-photo__empty">
               <CameraIcon size={26} />

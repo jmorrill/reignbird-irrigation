@@ -9,7 +9,9 @@ public static class Endpoints
 {
     public static void MapRainBirdApi(this IEndpointRouteBuilder app)
     {
-        var api = app.MapGroup("/api").WithTags("RainBird");
+        // Everything hanging off here needs a signed-in user. Applied at the group so
+        // that a route added later is protected by default rather than by memory.
+        var api = app.MapGroup("/api").WithTags("RainBird").RequireAuthorization();
 
         MapControllers(api);
         MapZones(api);
@@ -371,7 +373,7 @@ public static class Endpoints
 
         group.MapPost("/{station:int}/photo", async (
             int id, int station, IFormFile file,
-            AppDbContext db, IWebHostEnvironment env, CancellationToken ct) =>
+            AppDbContext db, StoragePaths storage, CancellationToken ct) =>
         {
             var zone = await db.Zones.FirstOrDefaultAsync(
                 z => z.ControllerId == id && z.StationNumber == station, ct);
@@ -386,11 +388,12 @@ public static class Endpoints
             if (extension is not (".jpg" or ".jpeg" or ".png" or ".webp"))
                 return Results.BadRequest(new { message = "Photos must be JPEG, PNG or WebP." });
 
-            var mediaRoot = Path.Combine(env.ContentRootPath, "media");
-            Directory.CreateDirectory(mediaRoot);
+            // The same directory the static file branch serves from, resolved once at
+            // startup — recomputing it here is how the two used to drift apart.
+            Directory.CreateDirectory(storage.Media);
 
             var fileName = $"zone-{id}-{station}{extension}";
-            await using (var stream = File.Create(Path.Combine(mediaRoot, fileName)))
+            await using (var stream = File.Create(Path.Combine(storage.Media, fileName)))
                 await file.CopyToAsync(stream, ct);
 
             zone.PhotoPath = fileName;

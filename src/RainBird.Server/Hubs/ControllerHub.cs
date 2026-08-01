@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace RainBird.Server.Hubs;
@@ -10,6 +11,7 @@ namespace RainBird.Server.Hubs;
 /// which the polling service uses to decide between its fast and idle cadences —
 /// there is no reason to hammer a small embedded device when nobody is looking.
 /// </summary>
+[Authorize]
 public class ControllerHub : Hub
 {
     private static int _connectionCount;

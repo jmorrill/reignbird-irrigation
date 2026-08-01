@@ -26,6 +26,7 @@ supported by Rain Bird Corporation.
 | **Zones** | Names, photos, plant and soil type, sprinkler head, nozzle flow rate |
 | **Diagnostics** | A console showing the raw SIP bytes going to and from the controller |
 | **Installable** | A PWA: installs to a home screen or dock, runs in its own window, and its shell loads offline |
+| **Accounts** | Username and password sign-in, JWT sessions, and account management from Settings |
 
 The controller itself stores none of the metadata, history or weather. The things a
 comparable product would keep in its cloud, this app keeps in a local SQLite file.
@@ -73,20 +74,50 @@ only needed for the forecast and weather skips.
 ### With Docker
 
 ```bash
-TZ=America/Los_Angeles docker compose up -d
+cp .env.example .env      # set TZ, and PUID/PGID on a Linux host
+docker compose up -d
 ```
 
-Open <http://localhost:5056>. The image is self-contained — it carries its own copy
-of .NET, so the base image has no runtime in it at all — and runs as a non-root user
-on a chiseled base with no shell and no package manager.
+Open <http://localhost:5056> and create the first account. The image is
+self-contained — it carries its own copy of .NET, so the base image has no runtime in
+it at all — and runs as a non-root user on a chiseled base with no shell and no
+package manager.
 
 **Set `TZ`.** Watering plans run in local time. Without it every new controller
 defaults to UTC, which does not fail in any visible way; it just waters at the wrong
 hour. Any IANA name works.
 
-Two named volumes are created, and both matter. `/app/store` holds the SQLite
-database and the Data Protection keys that encrypt your controller passwords — lose
-it and every controller has to be added again. `/app/media` holds zone photos.
+#### Where the data lives
+
+On the host, not inside the container and not in a Docker volume — `./data` by
+default, or wherever `REIGNBIRD_DATA` points:
+
+```
+data/store/     the SQLite database, the keys that encrypt controller passwords,
+                and the token signing key
+data/media/     zone photos
+```
+
+**That directory is the whole backup.** Everything else can be rebuilt from this
+repository; the contents of `data/store` cannot. Lose it and every controller has to
+be added again, because the keys that decrypt their passwords went with it.
+
+A bind mount keeps the host's ownership, so the container has to run as a user that
+can write there. On Linux set `PUID` and `PGID` in `.env` to your own (`id -u`,
+`id -g`) and nothing needs chowning; on Docker Desktop the defaults are fine. Get it
+wrong and the app says so on the first line of its log rather than failing later with
+something about SQLite.
+
+Running it directly rather than in a container, `REIGNBIRD_DATA_DIR` and
+`REIGNBIRD_MEDIA_DIR` do the same job.
+
+#### Creating the first account unattended
+
+For a container that comes up with nobody watching, set `REIGNBIRD_ADMIN_USER` and
+`REIGNBIRD_ADMIN_PASSWORD` in `.env`. The account is only ever created, never
+modified, so leaving them set cannot silently undo a password you changed later.
+Otherwise the first person to open the app is asked to create the account — do that
+before exposing the port, since whoever gets there first claims it.
 
 #### Building for another architecture
 
@@ -245,8 +276,20 @@ Findings worth calling out, because they will bite any other implementation:
 
 ## Security notes
 
-- **It has no authentication.** Anyone who can reach the port can run the sprinklers.
-  It assumes a trusted network — do not forward the port from the internet.
+- **Sign-in is required for everything.** Every API route, the live-update hub and the
+  zone photos need an account; only the health check and the sign-in routes are open.
+  Passwords are hashed with PBKDF2 through ASP.NET Core's own hasher, and each token
+  carries a security stamp, so changing a password or removing an account cuts off
+  existing sessions immediately rather than whenever the token would have expired.
+- **All accounts are equal.** Anyone signed in can water, schedule, and add or remove
+  accounts. There are no roles — only give an account to someone you would hand the
+  controller to. You cannot delete the account you are signed in with, and the last
+  account cannot be deleted.
+- **There is no TLS here.** Over plain HTTP a password and its token cross the network
+  in the clear, so the sign-in gate protects against the neighbour on your wifi, not
+  against someone watching the wire. Put a reverse proxy in front of it, or reach it
+  over Tailscale, before it leaves a network you trust. It logs a warning at startup
+  whenever it is listening beyond this machine.
 - Binds to `0.0.0.0:5056`, so it is reachable from the whole local network and from a
   Tailscale tailnet. It logs a warning at startup saying so. To keep it on this
   machine only, set `Urls` in `appsettings.json` to `http://127.0.0.1:5056`; to reach
@@ -256,8 +299,9 @@ Findings worth calling out, because they will bite any other implementation:
   "Urls": "http://100.x.y.z:5056;http://127.0.0.1:5056"   // your tailnet IP
   ```
 - Controller passwords are encrypted at rest with ASP.NET Core Data Protection, keyed
-  to `src/RainBird.Server/store/keys`. Losing that directory means re-adding your
-  controllers.
+  to the `keys` folder in the data directory. Losing it means re-adding your
+  controllers. The token signing key lives beside it; deleting `jwt-signing.key`
+  signs everybody out at once, which is the way to do that deliberately.
 - Rain Bird's cloud relay is deliberately not implemented. The protocol supports it;
   this app stays on your network.
 

@@ -5,6 +5,7 @@ import type { Zone } from '../api/types';
 import { CameraIcon, PlayIcon, StopIcon, ZonesIcon } from '../components/Icons';
 import { formatCountdown } from '../components/NowWatering';
 import { Button, EmptyState, SectionHead, Skeleton } from '../components/ui';
+import { useMediaUrl } from '../components/useMediaUrl';
 import { useStore } from '../stores/RootStore';
 
 const PLANT_LABELS: Record<string, string> = {
@@ -102,6 +103,7 @@ const ZoneRow = observer(function ZoneRow({
   onOpen: () => void;
 }) {
   const { zones, controllers } = useStore();
+  const photo = useMediaUrl(zone.photoUrl);
 
   return (
     <motion.li
@@ -121,8 +123,8 @@ const ZoneRow = observer(function ZoneRow({
         layoutId={`zone-${zone.stationNumber}`}
         whileTap={{ scale: 0.995 }}
       >
-        {zone.photoUrl ? (
-          <span className="zrow__photo" style={{ backgroundImage: `url(${zone.photoUrl})` }} />
+        {photo ? (
+          <span className="zrow__photo" style={{ backgroundImage: `url(${photo})` }} />
         ) : (
           <span className="zrow__photo zrow__photo--empty">
             <CameraIcon size={18} />

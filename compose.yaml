@@ -1,3 +1,9 @@
+# Reignbird. Copy .env.example to .env, set TZ, then: docker compose up -d
+#
+# Data lives on the host, not inside the container or a Docker volume — ./data by
+# default. That directory is the entire backup: lose it and every controller has to
+# be added again, because the keys that decrypt their passwords are in it.
+
 services:
   reignbird:
     build:
@@ -7,34 +13,41 @@ services:
     container_name: reignbird
     restart: unless-stopped
 
-    # The controller lives on your LAN and the app finds it by IP, so the container
-    # needs a route to it. Bridge networking is fine for that — this is not a
-    # discovery-by-broadcast setup. Use host networking only if you actually need it.
+    # The controller is found by IP on your LAN, so bridge networking is all this
+    # needs — nothing here depends on broadcast discovery.
     ports:
-      - "5056:5056"
+      - "${REIGNBIRD_PORT:-5056}:5056"
+
+    # Who the process runs as, which has to match the owner of the data directory
+    # below. Default 1654 is the user baked into the image; if ./data belongs to you,
+    # set PUID and PGID to your own (id -u and id -g) instead of chowning anything.
+    user: "${PUID:-1654}:${PGID:-1654}"
 
     environment:
       # Set this. Watering plans run in local time, and without it every new
-      # controller defaults to UTC — which does not error, it just waters at the
-      # wrong hour. Any IANA name works: America/Los_Angeles, Europe/London.
+      # controller defaults to UTC — which fails silently, by watering at the wrong
+      # hour. Any IANA name: America/Los_Angeles, Europe/London.
       TZ: ${TZ:-Etc/UTC}
 
-    volumes:
-      # The SQLite database and the Data Protection keys that encrypt controller
-      # passwords. Lose this and every controller has to be added again.
-      - reignbird-store:/app/store
-      # Zone photos.
-      - reignbird-media:/app/media
+      # Optional. Creates this account at startup if it does not already exist, for a
+      # container that comes up unattended. Leave both unset to use the first-run
+      # setup screen instead. An existing account is never modified, so a stale value
+      # here cannot silently reset a password you changed later.
+      REIGNBIRD_ADMIN_USER: ${REIGNBIRD_ADMIN_USER:-}
+      REIGNBIRD_ADMIN_PASSWORD: ${REIGNBIRD_ADMIN_PASSWORD:-}
 
-    # There is no shell in the image, so this uses the app's own health endpoint
-    # rather than curl, which is not there either.
+    volumes:
+      # The database, the Data Protection keys that encrypt controller passwords, and
+      # the token signing key.
+      - ${REIGNBIRD_DATA:-./data}/store:/app/store
+      # Zone photos.
+      - ${REIGNBIRD_DATA:-./data}/media:/app/media
+
+    # No shell in the image, so this runs the app's own self-check rather than curl,
+    # which is not in there either.
     healthcheck:
       test: ["CMD", "/app/RainBird.Server", "--healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
-
-volumes:
-  reignbird-store:
-  reignbird-media:

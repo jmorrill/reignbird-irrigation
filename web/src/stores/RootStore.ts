@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import { AuthStore } from './AuthStore';
 import { ConnectionStore } from './ConnectionStore';
 import { ControllerStore } from './ControllerStore';
 import { HistoryStore } from './HistoryStore';
@@ -17,6 +18,11 @@ import { ZoneStore } from './ZoneStore';
  * loading concerns.
  */
 export class RootStore {
+  // First, and deliberately so: its constructor adopts any stored token, and field
+  // initialisers run in declaration order. Nothing below fetches while constructing,
+  // but putting it last would leave that a matter of luck rather than of design.
+  readonly auth = new AuthStore();
+
   readonly ui = new UiStore();
   readonly controllers = new ControllerStore(this);
   readonly zones = new ZoneStore(this);

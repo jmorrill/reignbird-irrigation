@@ -1,4 +1,7 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using RainBird.Protocol;
 using Microsoft.EntityFrameworkCore;
@@ -20,8 +23,25 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Named "store" rather than "data" so it can never collide with the Data/ source
 // folder on a case-insensitive filesystem.
-var dataDirectory = Path.Combine(builder.Environment.ContentRootPath, "store");
+// Overridable so the database, keys and photos can live outside the container on a
+// path you can back up, rather than inside a volume you have to go digging for.
+var dataDirectory = builder.Configuration["REIGNBIRD_DATA_DIR"] is { Length: > 0 } configured
+    ? configured
+    : Path.Combine(builder.Environment.ContentRootPath, "store");
+
 Directory.CreateDirectory(dataDirectory);
+EnsureWritable(dataDirectory);
+
+// Zone photos, kept apart from the database so a large pile of images can live on a
+// different disk if it wants to.
+var mediaDirectory = builder.Configuration["REIGNBIRD_MEDIA_DIR"] is { Length: > 0 } configuredMedia
+    ? configuredMedia
+    : Path.Combine(builder.Environment.ContentRootPath, "media");
+
+Directory.CreateDirectory(mediaDirectory);
+EnsureWritable(mediaDirectory);
+
+builder.Services.AddSingleton(new StoragePaths(dataDirectory, mediaDirectory));
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite($"Data Source={Path.Combine(dataDirectory, "rainbird.db")}"));
@@ -31,6 +51,71 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(dataDirectory, "keys")))
     .SetApplicationName("RainBird");
+
+// ------------------------------------------------------------ authentication
+
+// Read before the host is built, because authentication has to be configured
+// before there is a DbContext to ask for it.
+var signingKey = SigningKeyStore.LoadOrCreate(dataDirectory, builder.Configuration);
+
+builder.Services.AddSingleton(signingKey);
+builder.Services.AddScoped<AuthService>(provider => new AuthService(
+    provider.GetRequiredService<AppDbContext>(),
+    signingKey,
+    provider.GetRequiredService<ILogger<AuthService>>()));
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = AuthService.ValidationParameters(signingKey);
+
+        // Off, so a claim called "sub" stays called "sub". Left on, the handler
+        // rewrites the standard JWT names into WS-Federation URIs from 2005, and code
+        // reading the claim it just wrote finds nothing under that name.
+        options.MapInboundClaims = false;
+
+        options.Events = new JwtBearerEvents
+        {
+            // A browser cannot set an Authorization header on a WebSocket handshake,
+            // so SignalR passes the token in the query string instead. Accepted only
+            // for the hub path, so it cannot become a general-purpose way to put a
+            // credential somewhere it will be logged.
+            OnMessageReceived = context =>
+            {
+                var token = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(token)
+                    && context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                {
+                    context.Token = token;
+                }
+
+                return Task.CompletedTask;
+            },
+
+            // A valid signature is not the whole question. The token also has to
+            // agree with the account as it stands now — this is what makes deleting
+            // an account or changing a password take effect immediately rather than
+            // whenever the token would have run out.
+            OnTokenValidated = async context =>
+            {
+                var principal = context.Principal;
+                var users = context.HttpContext.RequestServices.GetRequiredService<AuthService>();
+
+                var id = principal?.FindFirstValue(JwtRegisteredClaimNames.Sub);
+                var stamp = principal?.FindFirstValue(AuthService.SecurityStampClaim);
+
+                if (!int.TryParse(id, out var userId)
+                    || stamp is null
+                    || !await users.IsStillValidAsync(userId, stamp))
+                {
+                    context.Fail("The account this token was issued for has changed.");
+                }
+            },
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 // -------------------------------------------------------------------- services
 
@@ -105,6 +190,8 @@ using (var scope = app.Services.CreateScope())
 
     if (useSimulator)
         await SimulatorSeed.EnsureSeededAsync(scope.ServiceProvider);
+
+    await SeedAccountFromEnvironmentAsync(scope.ServiceProvider, app.Configuration);
 }
 
 app.UseDefaultFiles();
@@ -114,15 +201,38 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = ApplySpaCaching,
 });
 
-// Zone photos live outside wwwroot so rebuilding the SPA never deletes them.
-var mediaRoot = Path.Combine(app.Environment.ContentRootPath, "media");
-Directory.CreateDirectory(mediaRoot);
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(mediaRoot),
-    RequestPath = "/media",
-});
+app.UseAuthentication();
+app.UseAuthorization();
 
+// Zone photos live outside wwwroot so rebuilding the SPA never deletes them, and
+// behind authentication because the filenames are predictable — zone-3-1.jpg is a
+// photo of someone's garden that anyone who could reach the port would otherwise be
+// able to guess their way to.
+var mediaRoot = mediaDirectory;
+
+app.UseWhen(
+    context => context.Request.Path.StartsWithSegments("/media"),
+    media =>
+    {
+        media.Use(async (context, next) =>
+        {
+            if (context.User.Identity?.IsAuthenticated != true)
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                return;
+            }
+
+            await next();
+        });
+
+        media.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(mediaRoot),
+            RequestPath = "/media",
+        });
+    });
+
+app.MapAuthApi();
 app.MapRainBirdApi();
 app.MapPlanApi();
 app.MapHub<ControllerHub>("/hubs/controller");
@@ -144,6 +254,79 @@ app.Run();
 // Reached when the host shuts down cleanly. Present because the health-check path
 // above returns an exit code, which obliges every path to do the same.
 return 0;
+
+/// <summary>
+/// Fails immediately, and legibly, if the data directory cannot be written to.
+///
+/// This exists for bind mounts. A host directory mounted into the container keeps
+/// its own ownership, so if it belongs to your user and the container runs as
+/// another, nothing here can write. Left alone that surfaces several layers later as
+/// "unable to open database file", which sends people looking at SQLite rather than
+/// at the one line of their compose file that is actually wrong.
+/// </summary>
+static void EnsureWritable(string directory)
+{
+    var probe = Path.Combine(directory, ".write-test");
+
+    try
+    {
+        File.WriteAllText(probe, string.Empty);
+        File.Delete(probe);
+    }
+    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+    {
+        var uid = OperatingSystem.IsWindows() ? "this account" : $"uid {Environment.UserName}";
+
+        throw new InvalidOperationException(
+            $"Cannot write to the data directory '{directory}' as {uid}. "
+            + "If this is a bind mount, the host directory has to be writable by the user the "
+            + "container runs as — either chown it to that user, or set PUID/PGID to your own "
+            + "(id -u / id -g). Nothing can start until this is settled: the database, the "
+            + "encryption keys for controller passwords, and zone photos all live here.", ex);
+    }
+}
+
+/// <summary>
+/// Creates an account from REIGNBIRD_ADMIN_USER and REIGNBIRD_ADMIN_PASSWORD.
+///
+/// For a container that comes up unattended, where waiting for someone to open the
+/// setup screen is not much of a plan. Only ever creates: if the username already
+/// exists the password is left alone, because a stale variable in a compose file
+/// silently resetting a password somebody had since changed is a worse surprise than
+/// the variable appearing to do nothing.
+///
+/// Locked out with no way in? Set these to a *new* username. Every account is equal,
+/// so the account that appears can remove the one you cannot get into.
+/// </summary>
+static async Task SeedAccountFromEnvironmentAsync(IServiceProvider services, IConfiguration configuration)
+{
+    var username = configuration["REIGNBIRD_ADMIN_USER"]?.Trim();
+    var password = configuration["REIGNBIRD_ADMIN_PASSWORD"];
+    var logger = services.GetRequiredService<ILogger<Program>>();
+
+    if (string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password)) return;
+
+    var problem = AuthService.ValidateUsername(username) ?? AuthService.ValidatePassword(password);
+    if (problem is not null)
+    {
+        logger.LogWarning("REIGNBIRD_ADMIN_USER/PASSWORD ignored: {Problem}", problem);
+        return;
+    }
+
+    var users = services.GetRequiredService<AuthService>();
+
+    if (await users.FindAsync(username) is not null)
+    {
+        logger.LogInformation(
+            "Account {Username} already exists; REIGNBIRD_ADMIN_PASSWORD left unapplied", username);
+        return;
+    }
+
+    await users.CreateAsync(username, password);
+    logger.LogWarning(
+        "Created account {Username} from the environment. Consider removing "
+        + "REIGNBIRD_ADMIN_PASSWORD now that the account exists.", username);
+}
 
 /// <summary>
 /// Asks the running server whether it is healthy. Exit code 0 means yes.
@@ -213,10 +396,11 @@ static void ApplySpaCaching(StaticFileResponseContext context)
 /// <summary>
 /// Says plainly, at startup, when the app is listening beyond this machine.
 ///
-/// There is no authentication on this API: anyone who can reach the port can run
-/// the sprinklers. That is a reasonable trade on a private mesh or a home LAN and a
-/// bad one on an untrusted network, so which of those it is should not be something
-/// you have to infer from a config file.
+/// Sign-in protects the API, but nothing here terminates TLS: over plain HTTP a
+/// password and the token it returns cross the network in the clear. That is a
+/// reasonable trade on a private mesh or a home LAN and a bad one anywhere else, and
+/// which of those you are on should not be something you have to infer from a config
+/// file.
 /// </summary>
 static void WarnIfReachableFromTheNetwork(WebApplication app)
 {
@@ -231,9 +415,10 @@ static void WarnIfReachableFromTheNetwork(WebApplication app)
         if (exposed.Count == 0) return;
 
         app.Logger.LogWarning(
-            "Listening on {Addresses}, so this app is reachable from the network. It has no "
-            + "authentication — anyone who can reach the port can run the sprinklers. Keep it on a "
-            + "trusted network, and never forward the port from the internet.",
+            "Listening on {Addresses}, so this app is reachable from the network. Accounts protect "
+            + "the API, but this is plain HTTP with no TLS — passwords and tokens cross the network "
+            + "in the clear. Keep it on a trusted network, and never forward the port from the "
+            + "internet without a reverse proxy terminating HTTPS.",
             string.Join(", ", exposed));
     });
 }

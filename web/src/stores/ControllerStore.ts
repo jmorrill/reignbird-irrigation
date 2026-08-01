@@ -1,6 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import * as signalR from '@microsoft/signalr';
-import { API_BASE, ApiError, api } from '../api/client';
+import { API_BASE, ApiError, api, getAuthToken } from '../api/client';
 import type { Capabilities, Controller, ControllerState } from '../api/types';
 import type { RootStore } from './RootStore';
 
@@ -165,7 +165,10 @@ export class ControllerStore {
     if (this.hub) return;
 
     const hub = new signalR.HubConnectionBuilder()
-      .withUrl(`${API_BASE}/hubs/controller`)
+      // A WebSocket handshake cannot carry an Authorization header, so SignalR puts
+      // the token in the query string instead. Read per attempt rather than captured
+      // once, so a reconnect after a password change uses the new token.
+      .withUrl(`${API_BASE}/hubs/controller`, { accessTokenFactory: () => getAuthToken() ?? '' })
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Warning)
       .build();

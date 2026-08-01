@@ -42,6 +42,8 @@ export const SettingsScreen = observer(function SettingsScreen() {
 
       <SkipPanel />
       <AppearancePanel />
+      <AccountPanel />
+      <UsersPanel />
       <InstallPanel />
 
       {controllers.selected && <DiagnosticsPanel />}
@@ -331,6 +333,194 @@ const AppearancePanel = observer(function AppearancePanel() {
           />
         </div>
       </div>
+    </Card>
+  );
+});
+
+/* ---------------------------------------------------------------- account */
+
+const AccountPanel = observer(function AccountPanel() {
+  const { auth, ui } = useStore();
+
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function change() {
+    if (next !== confirm) {
+      ui.notify('bad', 'Those passwords do not match');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await auth.changePassword(current, next);
+      ui.notify('good', 'Password changed', 'Any other signed-in device has been signed out.');
+      setOpen(false);
+      setCurrent('');
+      setNext('');
+      setConfirm('');
+    } catch (error) {
+      ui.notify('bad', 'Could not change password', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <SectionHead eyebrow="Account" title={auth.user?.username ?? 'Signed in'} />
+
+      <div className="setting-row">
+        <div className="setting-row__text">
+          <span className="setting-row__label">Password</span>
+          <span className="setting-row__hint">
+            Changing it signs out every other device immediately.
+          </span>
+        </div>
+        <div className="setting-row__control">
+          <Button size="sm" onClick={() => setOpen(!open)}>
+            {open ? 'Cancel' : 'Change'}
+          </Button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="form-stack">
+          <Field label="Current password">
+            <TextInput value={current} onChange={setCurrent} type="password" autoComplete="current-password" />
+          </Field>
+          <Field label="New password" hint="At least 8 characters.">
+            <TextInput value={next} onChange={setNext} type="password" autoComplete="new-password" />
+          </Field>
+          <Field label="Confirm new password">
+            <TextInput value={confirm} onChange={setConfirm} type="password" autoComplete="new-password" />
+          </Field>
+          <Button
+            tone="primary"
+            onClick={change}
+            disabled={busy || !current || next.length < 8 || !confirm}
+          >
+            {busy ? 'Saving…' : 'Change password'}
+          </Button>
+        </div>
+      )}
+
+      <div className="setting-row">
+        <div className="setting-row__text">
+          <span className="setting-row__label">Sign out</span>
+          <span className="setting-row__hint">Only this device.</span>
+        </div>
+        <div className="setting-row__control">
+          <Button size="sm" tone="danger" onClick={() => auth.signOut()}>
+            Sign out
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
+});
+
+/* ------------------------------------------------------------------ users */
+
+const UsersPanel = observer(function UsersPanel() {
+  const { auth, ui } = useStore();
+
+  const [adding, setAdding] = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void auth.loadAccounts().catch(() => {
+      /* The offline banner already says why. */
+    });
+  }, [auth]);
+
+  async function add() {
+    setBusy(true);
+    try {
+      await auth.addAccount(username.trim(), password);
+      ui.notify('good', `Added ${username.trim()}`);
+      setAdding(false);
+      setUsername('');
+      setPassword('');
+    } catch (error) {
+      ui.notify('bad', 'Could not add that account', error instanceof Error ? error.message : undefined);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: number, name: string) {
+    if (!confirm(`Remove ${name}? They will be signed out immediately.`)) return;
+
+    try {
+      await auth.removeAccount(id);
+      ui.notify('good', `Removed ${name}`);
+    } catch (error) {
+      ui.notify('bad', 'Could not remove that account', error instanceof Error ? error.message : undefined);
+    }
+  }
+
+  return (
+    <Card>
+      <SectionHead
+        eyebrow="Access"
+        title="Accounts"
+        action={
+          <Button size="sm" icon={<PlusIcon size={16} />} onClick={() => setAdding(!adding)}>
+            {adding ? 'Cancel' : 'Add account'}
+          </Button>
+        }
+      />
+
+      <p className="muted">
+        Every account can do everything, including adding and removing accounts. Only give one to
+        someone you would hand the controller to.
+      </p>
+
+      {adding && (
+        <div className="form-stack">
+          <Field label="Username">
+            <TextInput value={username} onChange={setUsername} placeholder="e.g. sam" />
+          </Field>
+          <Field label="Password" hint="At least 8 characters. Tell them to change it after signing in.">
+            <TextInput value={password} onChange={setPassword} type="password" autoComplete="new-password" />
+          </Field>
+          <Button tone="primary" onClick={add} disabled={busy || !username.trim() || password.length < 8}>
+            {busy ? 'Adding…' : 'Add account'}
+          </Button>
+        </div>
+      )}
+
+      {auth.accounts.map((account) => (
+        <div className="setting-row" key={account.id}>
+          <div className="setting-row__text">
+            <span className="setting-row__label">
+              {account.username}
+              {account.id === auth.user?.id && <span className="muted"> — you</span>}
+            </span>
+            <span className="setting-row__hint">
+              {account.lastSignInUtc
+                ? `Last signed in ${new Date(account.lastSignInUtc).toLocaleDateString()}`
+                : 'Has not signed in yet'}
+            </span>
+          </div>
+          <div className="setting-row__control">
+            <Button
+              size="sm"
+              tone="danger"
+              disabled={account.id === auth.user?.id || auth.accounts.length <= 1}
+              onClick={() => remove(account.id, account.username)}
+            >
+              Remove
+            </Button>
+          </div>
+        </div>
+      ))}
     </Card>
   );
 });

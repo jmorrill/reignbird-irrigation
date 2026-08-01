@@ -23,6 +23,35 @@ public static class SchemaUpgrader
         await AddColumnIfMissingAsync(db, logger, "Controllers", "UseHttps", "INTEGER NOT NULL DEFAULT 0", ct);
         await AddAutoDisabledAsync(db, logger, ct);
         await AddPlanTablesAsync(db, logger, ct);
+        await AddUsersTableAsync(db, logger, ct);
+    }
+
+    /// <summary>
+    /// Accounts arrived after the first release, so a database created before them
+    /// has no Users table and EnsureCreated will not add one.
+    /// </summary>
+    private static async Task AddUsersTableAsync(AppDbContext db, ILogger logger, CancellationToken ct)
+    {
+        if (await TableExistsAsync(db, "Users", ct)) return;
+
+        // NOCASE on the username so "Sam" and "sam" collide at the unique index
+        // rather than becoming two accounts nobody can tell apart when signing in.
+        await db.Database.ExecuteSqlRawAsync(
+            """
+            CREATE TABLE "Users" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_Users" PRIMARY KEY AUTOINCREMENT,
+                "Username" TEXT NOT NULL COLLATE NOCASE,
+                "PasswordHash" TEXT NOT NULL DEFAULT '',
+                "SecurityStamp" TEXT NOT NULL DEFAULT '',
+                "CreatedUtc" INTEGER NOT NULL DEFAULT 0,
+                "LastSignInUtc" INTEGER NULL
+            )
+            """, ct);
+
+        await db.Database.ExecuteSqlRawAsync(
+            """CREATE UNIQUE INDEX "IX_Users_Username" ON "Users" ("Username")""", ct);
+
+        logger.LogInformation("Schema upgrade: added the Users table");
     }
 
     /// <summary>

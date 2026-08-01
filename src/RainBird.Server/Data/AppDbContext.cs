@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<SkipEventRecord> SkipEvents => Set<SkipEventRecord>();
     public DbSet<WeatherDayRecord> WeatherDays => Set<WeatherDayRecord>();
     public DbSet<SettingRecord> Settings => Set<SettingRecord>();
+    public DbSet<UserRecord> Users => Set<UserRecord>();
 
     public DbSet<WateringPlan> WateringPlans => Set<WateringPlan>();
     public DbSet<PlanZone> PlanZones => Set<PlanZone>();
@@ -49,6 +50,17 @@ public class AppDbContext : DbContext
             .HasIndex(s => new { s.ControllerId, s.Date });
 
         builder.Entity<SettingRecord>().HasKey(s => s.Key);
+
+        // Usernames are stored as typed but matched without regard to case, so
+        // "Sam" cannot be registered alongside "sam" and then be impossible to tell
+        // apart at the login prompt.
+        builder.Entity<UserRecord>()
+            .HasIndex(u => u.Username)
+            .IsUnique();
+
+        builder.Entity<UserRecord>()
+            .Property(u => u.Username)
+            .UseCollation("NOCASE");
 
         builder.Entity<WateringPlan>()
             .HasMany(plan => plan.Zones)

@@ -33,7 +33,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.10" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Identity.Core" Version="10.0.10" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
@@ -63,29 +65,22 @@
     <_SpaAlreadyBuilt Condition="Exists('$(MSBuildProjectDirectory)\wwwroot\index.html')">true</_SpaAlreadyBuilt>
   </PropertyGroup>
 
-  <Target Name="BuildSpa"
-          BeforeTargets="ComputeFilesToPublish"
-          Condition="'$(SkipSpaBuild)' != 'true' AND '$(_SpaAlreadyBuilt)' != 'true'">
+  <Target Name="BuildSpa" BeforeTargets="ComputeFilesToPublish" Condition="'$(SkipSpaBuild)' != 'true' AND '$(_SpaAlreadyBuilt)' != 'true'">
     <Message Importance="high" Text="Building the SPA in $(SpaRoot) — pass -p:SkipSpaBuild=true to skip" />
     <Exec Command="npm ci" WorkingDirectory="$(SpaRoot)" />
     <Exec Command="npm run build" WorkingDirectory="$(SpaRoot)" />
   </Target>
 
-  <Target Name="IncludeSpaInPublish"
-          AfterTargets="ComputeFilesToPublish"
-          Condition="'$(SkipSpaBuild)' != 'true' AND '$(_SpaAlreadyBuilt)' != 'true'">
+  <Target Name="IncludeSpaInPublish" AfterTargets="ComputeFilesToPublish" Condition="'$(SkipSpaBuild)' != 'true' AND '$(_SpaAlreadyBuilt)' != 'true'">
     <ItemGroup>
       <_SpaOutput Include="$(MSBuildProjectDirectory)\wwwroot\**\*" />
-      <ResolvedFileToPublish Include="@(_SpaOutput)"
-                             RelativePath="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
-                             CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="@(_SpaOutput)" RelativePath="wwwroot\%(RecursiveDir)%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
 
   <!-- Whichever route got here, refuse to call a UI-less publish a success. -->
   <Target Name="VerifySpaPublished" AfterTargets="Publish">
-    <Error Condition="!Exists('$(PublishDir)wwwroot\index.html')"
-           Text="Published output has no wwwroot/index.html, so the server would serve no interface. Build the SPA with 'npm run build' in web/, or leave SkipSpaBuild unset so publish builds it." />
+    <Error Condition="!Exists('$(PublishDir)wwwroot\index.html')" Text="Published output has no wwwroot/index.html, so the server would serve no interface. Build the SPA with 'npm run build' in web/, or leave SkipSpaBuild unset so publish builds it." />
   </Target>
 
 </Project>

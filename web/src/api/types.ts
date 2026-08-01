@@ -287,3 +287,17 @@ export interface SavePlan {
   weatherSkipEnabled: boolean;
   zones: PlanZone[];
 }
+
+/** Someone who can sign in. Every account is equal — there are no roles. */
+export interface Account {
+  id: number;
+  username: string;
+  createdUtc: string;
+  lastSignInUtc: string | null;
+}
+
+export interface Session {
+  token: string;
+  expiresUtc: string;
+  user: Account;
+}

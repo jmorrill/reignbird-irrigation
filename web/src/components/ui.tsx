@@ -253,18 +253,22 @@ export function TextInput({
   placeholder,
   type = 'text',
   inputMode,
+  autoComplete,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   type?: string;
   inputMode?: 'text' | 'numeric' | 'decimal';
+  /** Set on the sign-in fields so password managers offer to fill and to save. */
+  autoComplete?: string;
 }) {
   return (
     <input
       className="input"
       type={type}
       inputMode={inputMode}
+      autoComplete={autoComplete}
       value={value}
       placeholder={placeholder}
       onChange={(event) => onChange(event.target.value)}

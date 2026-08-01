@@ -1,4 +1,5 @@
 import type {
+  Account,
   ActivePlan,
   ArmedState,
   CalendarDay,
@@ -11,6 +12,7 @@ import type {
   Program,
   Run,
   SavePlan,
+  Session,
   SipExchange,
   SkipDecision,
   SkipEvent,
@@ -70,6 +72,40 @@ export function onServerReachabilityChange(listener: ReachabilityListener) {
   notifyReachability = listener;
 }
 
+/**
+ * The bearer token every request carries, held here rather than read from storage
+ * per call so that signing out takes effect on requests already in flight.
+ */
+let authToken: string | null = null;
+let notifySessionEnded: (() => void) | null = null;
+
+export function setAuthToken(token: string | null) {
+  authToken = token;
+}
+
+export function getAuthToken(): string | null {
+  return authToken;
+}
+
+/** Called when the server rejects our token — expired, or the account is gone. */
+export function onSessionEnded(listener: () => void) {
+  notifySessionEnded = listener;
+}
+
+function authHeaders(): Record<string, string> {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : {};
+}
+
+/**
+ * A 401 from the login or setup route means "those credentials are wrong" and is the
+ * caller's to report. A 401 from anywhere else means the session itself is over, and
+ * the whole app has to return to the sign-in screen.
+ */
+function handleUnauthorized(path: string) {
+  if (path.startsWith('/api/auth/login') || path.startsWith('/api/auth/setup')) return;
+  notifySessionEnded?.();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -77,6 +113,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: {
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        ...authHeaders(),
         ...init?.headers,
       },
     });
@@ -87,6 +124,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   // Any answer at all, including an error status, means the server is there.
   notifyReachability?.(true);
+
+  if (response.status === 401) handleUnauthorized(path);
 
   if (!response.ok) {
     let message = `Request failed (${response.status}).`;
@@ -118,6 +157,24 @@ const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
 
 export const api = {
   health: () => get<{ status: string; simulator: boolean; version: string }>('/api/health'),
+
+  auth: {
+    status: () => get<{ setupRequired: boolean }>('/api/auth/status'),
+    login: (username: string, password: string) =>
+      post<Session>('/api/auth/login', { username, password }),
+    setup: (username: string, password: string) =>
+      post<Session>('/api/auth/setup', { username, password }),
+    me: () => get<Account>('/api/auth/me'),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      post<Session>('/api/auth/password', { currentPassword, newPassword }),
+  },
+
+  users: {
+    list: () => get<Account[]>('/api/users'),
+    create: (username: string, password: string) =>
+      post<Account>('/api/users', { username, password }),
+    remove: (id: number) => del<void>(`/api/users/${id}`),
+  },
 
   controllers: {
     list: () => get<Controller[]>('/api/controllers'),
@@ -164,10 +221,14 @@ export const api = {
     uploadPhoto: async (id: number, station: number, file: File) => {
       const form = new FormData();
       form.append('file', file);
+      // Not through request(): the body is FormData, and setting a JSON content type
+      // would stop the browser writing the multipart boundary.
       const response = await fetch(`${API_BASE}/api/controllers/${id}/zones/${station}/photo`, {
         method: 'POST',
         body: form,
+        headers: authHeaders(),
       });
+      if (response.status === 401) handleUnauthorized('/api/photo');
       if (!response.ok) throw new ApiError('Could not save the photo.', response.status);
       return (await response.json()) as { photoUrl: string };
     },
