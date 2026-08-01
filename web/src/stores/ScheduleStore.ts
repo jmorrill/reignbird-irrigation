@@ -9,6 +9,13 @@ export const UNSET_START_TIME = 65535;
 export class ScheduleStore {
   programs: Program[] = [];
   loading = false;
+
+  /**
+   * True once a load has actually succeeded. Distinct from `loading`: an empty
+   * list means "there are none" only after this is true, and before it the screen
+   * knows nothing and should say so rather than showing an empty state.
+   */
+  loaded = false;
   saving = false;
 
   private readonly root: RootStore;
@@ -34,12 +41,12 @@ export class ScheduleStore {
         this.programs = programs;
       });
     } catch {
-      runInAction(() => {
-        this.programs = [];
-      });
+      // Keeps the last known programs. A failed refresh is not evidence they were
+      // deleted, and the connection banner is what says they may be stale.
     } finally {
       runInAction(() => {
         this.loading = false;
+        this.loaded = true;
       });
     }
   }

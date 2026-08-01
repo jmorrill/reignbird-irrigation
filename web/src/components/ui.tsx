@@ -470,6 +470,22 @@ export function EmptyState({
   );
 }
 
+/** A small indeterminate spinner, for when something is in flight but not yet wrong. */
+export function Spinner({ size = 16 }: { size?: number }) {
+  return <span className="spinner" style={{ width: size, height: size }} aria-hidden />;
+}
+
+/**
+ * A placeholder shaped like the text that is coming.
+ *
+ * For the case where the answer is not known yet and any concrete wording would be a
+ * guess. Showing "No watering scheduled" and correcting it a moment later is worse
+ * than showing nothing: the first version is not a slower answer, it is a wrong one.
+ */
+export function GhostText({ width = '60%', height = 14 }: { width?: string | number; height?: number }) {
+  return <span className="ghost-text" style={{ width, height }} aria-hidden />;
+}
+
 export function Skeleton({ height = 64, count = 1 }: { height?: number; count?: number }) {
   return (
     <div className="skeleton-stack">

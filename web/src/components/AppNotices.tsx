@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { useStore } from '../stores/RootStore';
 import { AlertIcon, CloseIcon, RefreshIcon } from './Icons';
+import { Spinner } from './ui';
 
 /**
  * Status bars about the app itself, under the header.
@@ -14,7 +15,7 @@ import { AlertIcon, CloseIcon, RefreshIcon } from './Icons';
  * would take the only route to the new version with it.
  */
 export const AppNotices = observer(function AppNotices() {
-  const { pwa, connection, controllers, ui } = useStore();
+  const { pwa, connection, ui } = useStore();
 
   useEffect(() => {
     if (!pwa.offlineReady) return;
@@ -25,18 +26,31 @@ export const AppNotices = observer(function AppNotices() {
 
   return (
     <AnimatePresence initial={false}>
-      {!connection.reachable && (
+      {/* A dropped connection is usually a phone waking up, and it is usually back
+          within a second. Saying so quietly first, and only raising the alarm once
+          several attempts have failed, is the difference between an app that looks
+          broken every time you open it and one that looks busy for a moment. */}
+      {connection.reconnecting && (
+        <Bar key="reconnecting" tone="quiet" icon={<Spinner size={15} />}>
+          <span className="notice__text">
+            <span className="notice__title">Reconnecting…</span>
+            <span className="notice__detail">Showing the last view that loaded.</span>
+          </span>
+        </Bar>
+      )}
+
+      {connection.state === 'offline' && (
         <Bar key="offline" tone="warn" icon={<AlertIcon size={16} />}>
           <span className="notice__text">
             <span className="notice__title">Can't reach the Reignbird server</span>
             <span className="notice__detail">
-              This is the last view that loaded, not live state. Nothing can be started or stopped
-              until the server answers again.
+              Still trying. This is the last view that loaded, not live state — nothing can be
+              started or stopped until the server answers.
             </span>
           </span>
 
-          <button className="btn btn--sm btn--quiet" onClick={() => void controllers.load()}>
-            Retry
+          <button className="btn btn--sm btn--quiet" onClick={() => connection.recheckNow()}>
+            Try now
           </button>
         </Bar>
       )}
@@ -66,7 +80,7 @@ function Bar({
   icon,
   children,
 }: {
-  tone: 'water' | 'warn';
+  tone: 'water' | 'warn' | 'quiet';
   icon: ReactNode;
   children: ReactNode;
 }) {

@@ -7,6 +7,13 @@ export class ZoneStore {
   zones: Zone[] = [];
   loading = false;
 
+  /**
+   * True once a load has actually succeeded. Distinct from `loading`: an empty
+   * list means "there are none" only after this is true, and before it the screen
+   * knows nothing and should say so rather than showing an empty state.
+   */
+  loaded = false;
+
   private readonly root: RootStore;
 
   constructor(root: RootStore) {
@@ -38,12 +45,11 @@ export class ZoneStore {
         this.zones = zones;
       });
     } catch {
-      runInAction(() => {
-        this.zones = [];
-      });
+      // Keeps the last known zones rather than emptying the screen on a blip.
     } finally {
       runInAction(() => {
         this.loading = false;
+        this.loaded = true;
       });
     }
   }

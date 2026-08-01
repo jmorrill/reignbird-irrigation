@@ -32,7 +32,9 @@ export const ZonesScreen = observer(function ZonesScreen() {
   const { zones, controllers, ui } = useStore();
   const [showDisabled, setShowDisabled] = useState(false);
 
-  if (zones.loading && zones.zones.length === 0) {
+  // Not `loading`: that is false before the first request even starts, which is
+  // exactly the moment an empty list would be mistaken for "there are no zones".
+  if (!zones.loaded) {
     return <Skeleton height={92} count={6} />;
   }
 

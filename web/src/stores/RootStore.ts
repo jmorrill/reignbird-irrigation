@@ -35,7 +35,7 @@ export class RootStore {
   // rather than to a controller. PwaStore registers the service worker as soon as
   // the app is constructed.
   readonly pwa = new PwaStore();
-  readonly connection = new ConnectionStore();
+  readonly connection = new ConnectionStore(this);
 
   async start() {
     await this.weather.loadSettings();
@@ -45,6 +45,23 @@ export class RootStore {
 
   stop() {
     this.controllers.stopTicking();
+  }
+
+  /**
+   * Reloads everything for the current controller.
+   *
+   * Called when the connection comes back. Whatever failed while it was gone left
+   * the screen holding something older than it now needs to be, and the polling loop
+   * on its own would only refresh live state — not the plans, zones or history that
+   * may have moved on while the app was in someone's pocket.
+   */
+  async refresh() {
+    if (!this.auth.signedIn) return;
+
+    await this.controllers.load();
+
+    const selected = this.controllers.selectedId;
+    if (selected !== null) await this.onControllerChanged(selected);
   }
 
   /** Called by ControllerStore once a different controller is selected. */

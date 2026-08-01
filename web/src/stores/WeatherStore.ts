@@ -10,6 +10,13 @@ export class WeatherStore {
   units: UnitPreferences = { useMetric: false, showVolume: true };
   loading = false;
 
+  /**
+   * True once a load has actually succeeded. Distinct from `loading`: an empty
+   * list means "there are none" only after this is true, and before it the screen
+   * knows nothing and should say so rather than showing an empty state.
+   */
+  loaded = false;
+
   private readonly root: RootStore;
 
   constructor(root: RootStore) {
@@ -48,13 +55,11 @@ export class WeatherStore {
         this.skips = skips;
       });
     } catch {
-      runInAction(() => {
-        this.forecast = [];
-        this.skips = [];
-      });
+      // Keeps yesterday's forecast rather than blanking the strip.
     } finally {
       runInAction(() => {
         this.loading = false;
+        this.loaded = true;
       });
     }
   }

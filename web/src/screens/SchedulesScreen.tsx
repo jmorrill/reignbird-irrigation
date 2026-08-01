@@ -53,7 +53,7 @@ export const SchedulesScreen = observer(function SchedulesScreen() {
 const PlansView = observer(function PlansView() {
   const { plans, ui, controllers } = useStore();
 
-  if (plans.loading && plans.plans.length === 0) {
+  if (!plans.loaded) {
     return <Skeleton height={140} count={2} />;
   }
 
@@ -287,7 +287,7 @@ const PlanCard = observer(function PlanCard({ plan }: { plan: Plan }) {
 const ProgramList = observer(function ProgramList() {
   const { schedules, ui } = useStore();
 
-  if (schedules.loading && schedules.programs.length === 0) {
+  if (!schedules.loaded) {
     return <Skeleton height={120} count={3} />;
   }
 

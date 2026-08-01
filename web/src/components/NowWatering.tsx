@@ -2,7 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { observer } from 'mobx-react-lite';
 import { useStore } from '../stores/RootStore';
 import { DropIcon, SkipIcon, StopIcon } from './Icons';
-import { Button } from './ui';
+import { Button, GhostText } from './ui';
 
 /** Seconds to m:ss. */
 export function formatCountdown(seconds: number): string {
@@ -176,14 +176,33 @@ const DelayHero = observer(function DelayHero({ days }: { days: number }) {
 
 const IdleHero = observer(function IdleHero() {
   const { controllers, schedules, zones, plans } = useStore();
-  const next = nextRunDescription(plans.enabled, schedules.programs);
+
+  // Both have to have answered. Either one still in flight and the honest reply is
+  // "not sure yet" — announcing "No watering scheduled" and correcting it a beat
+  // later is not a slower answer, it is a wrong one.
+  const known = plans.loaded && schedules.loaded;
+  const next = known ? nextRunDescription(plans.enabled, schedules.programs) : null;
 
   return (
     <div className="hero hero--idle">
       <div className="hero__body">
         <div className="eyebrow">Idle</div>
-        <p className="hero__headline">{next.headline}</p>
-        <p className="hero__detail">{next.detail}</p>
+
+        {next ? (
+          <>
+            <p className="hero__headline">{next.headline}</p>
+            <p className="hero__detail">{next.detail}</p>
+          </>
+        ) : (
+          <>
+            <p className="hero__headline">
+              <GhostText width="min(72%, 340px)" height={26} />
+            </p>
+            <p className="hero__detail">
+              <GhostText width="min(52%, 240px)" height={13} />
+            </p>
+          </>
+        )}
         <div className="hero__actions">
           <Button
             tone="quiet"

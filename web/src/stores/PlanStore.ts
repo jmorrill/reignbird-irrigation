@@ -20,6 +20,20 @@ export class PlanStore {
   saving = false;
   disarming = false;
 
+  /**
+   * True once a load has finished, whether or not it worked.
+   *
+   * Distinct from `loading`, and the distinction is the point: an empty list means
+   * "no plans" only after this is true. Before it the screen knows nothing, and
+   * announcing that nothing is scheduled would not be a slower answer but a wrong
+   * one.
+   *
+   * It counts a failed attempt too, on purpose. Requiring success would leave a
+   * screen showing a skeleton for as long as the server stayed unreachable, which
+   * reads as broken; the connection banner is the right place to explain that.
+   */
+  loaded = false;
+
   private readonly root: RootStore;
 
   constructor(root: RootStore) {
@@ -57,14 +71,14 @@ export class PlanStore {
         this.active = active;
       });
     } catch {
-      runInAction(() => {
-        this.plans = [];
-        this.runs = [];
-        this.active = null;
-      });
+      // Deliberately keeps whatever was already there. A refresh failing because the
+      // phone changed networks is not evidence that the plans were deleted, and
+      // blanking the screen on a blip is worse than showing something a minute old —
+      // the connection banner is what says it might be stale.
     } finally {
       runInAction(() => {
         this.loading = false;
+        this.loaded = true;
       });
     }
 

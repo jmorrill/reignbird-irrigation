@@ -9,6 +9,13 @@ export class HistoryStore {
   calendar: CalendarDay[] = [];
   loading = false;
 
+  /**
+   * True once a load has actually succeeded. Distinct from `loading`: an empty
+   * list means "there are none" only after this is true, and before it the screen
+   * knows nothing and should say so rather than showing an empty state.
+   */
+  loaded = false;
+
   /** Month the calendar is showing. */
   calendarYear = new Date().getFullYear();
   calendarMonth = new Date().getMonth() + 1;
@@ -60,14 +67,11 @@ export class HistoryStore {
         this.calendar = calendar;
       });
     } catch {
-      runInAction(() => {
-        this.runs = [];
-        this.usage = null;
-        this.calendar = [];
-      });
+      // History does not vanish because a request did. Keep what we have.
     } finally {
       runInAction(() => {
         this.loading = false;
+        this.loaded = true;
       });
     }
   }

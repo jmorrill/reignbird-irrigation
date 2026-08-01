@@ -549,3 +549,50 @@
   border-color: var(--water);
   color: #fff;
 }
+
+/* Inline placeholder for a single line of text whose value is not known yet.
+   Shares the skeleton's sweep so the two read as the same idea at different sizes. */
+.ghost-text {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--line) 50%, var(--surface-2) 75%);
+  background-size: 240% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+/* Indeterminate spinner. currentColor so it takes the tone of whatever contains it. */
+.spinner {
+  display: inline-block;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spinner-turn 0.7s linear infinite;
+}
+
+@keyframes spinner-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A notice that is informational rather than a problem: reconnecting, and similar. */
+.notice--quiet {
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.notice--quiet .notice__icon {
+  color: var(--text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost-text,
+  .skeleton {
+    animation: none;
+  }
+
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
