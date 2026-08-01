@@ -39,6 +39,10 @@ const WeatherStrip = observer(function WeatherStrip() {
   const { weather } = useStore();
   const days = weather.strip;
 
+  if (!weather.loaded) {
+    return <Skeleton height={104} />;
+  }
+
   if (days.length === 0) {
     return (
       <Card>
@@ -120,7 +124,9 @@ const RunTimeline = observer(function RunTimeline() {
     <section>
       <SectionHead eyebrow="Activity" title="Recent watering" />
 
-      {history.runsByDay.length === 0 ? (
+      {!history.loaded ? (
+        <Skeleton height={120} count={2} />
+      ) : history.runsByDay.length === 0 ? (
         <Card>
           <EmptyState
             title="No watering recorded yet"
@@ -210,7 +216,7 @@ const UsagePanel = observer(function UsagePanel() {
   const { history, weather } = useStore();
   const usage = history.usage;
 
-  if (!usage || usage.runCount === 0) return null;
+  if (!history.loaded || !usage || usage.runCount === 0) return null;
 
   const monthLabel = new Date(`${usage.month}-02T12:00:00`).toLocaleDateString(undefined, {
     month: 'long',
