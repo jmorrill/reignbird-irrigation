@@ -27,6 +27,7 @@ supported by Rain Bird Corporation.
 | **Diagnostics** | A console showing the raw SIP bytes going to and from the controller |
 | **Installable** | A PWA: installs to a home screen or dock, runs in its own window, and its shell loads offline |
 | **Accounts** | Username and password sign-in, JWT sessions, and account management from Settings |
+| **Alerts** | Push notifications when a plan fails, a controller goes quiet, or a zone reports a fault |
 
 The controller itself stores none of the metadata, history or weather. The things a
 comparable product would keep in its cloud, this app keeps in a local SQLite file.
@@ -301,7 +302,12 @@ Findings worth calling out, because they will bite any other implementation:
 - Controller passwords are encrypted at rest with ASP.NET Core Data Protection, keyed
   to the `keys` folder in the data directory. Losing it means re-adding your
   controllers. The token signing key lives beside it; deleting `jwt-signing.key`
-  signs everybody out at once, which is the way to do that deliberately.
+  signs everybody out at once, which is the way to do that deliberately. `vapid.json`
+  is the notification keypair — deleting it silently stops every subscribed device
+  receiving anything until each one turns notifications on again.
+- **Notifications need HTTPS**, like installing does. Browsers do not expose push on
+  a plain `http://` origin at all, so the setting says so rather than offering a
+  switch that cannot work.
 - Rain Bird's cloud relay is deliberately not implemented. The protocol supports it;
   this app stays on your network.
 

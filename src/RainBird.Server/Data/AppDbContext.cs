@@ -14,6 +14,8 @@ public class AppDbContext : DbContext
     public DbSet<WeatherDayRecord> WeatherDays => Set<WeatherDayRecord>();
     public DbSet<SettingRecord> Settings => Set<SettingRecord>();
     public DbSet<UserRecord> Users => Set<UserRecord>();
+    public DbSet<AlertRecord> Alerts => Set<AlertRecord>();
+    public DbSet<PushSubscriptionRecord> PushSubscriptions => Set<PushSubscriptionRecord>();
 
     public DbSet<WateringPlan> WateringPlans => Set<WateringPlan>();
     public DbSet<PlanZone> PlanZones => Set<PlanZone>();
@@ -61,6 +63,13 @@ public class AppDbContext : DbContext
         builder.Entity<UserRecord>()
             .Property(u => u.Username)
             .UseCollation("NOCASE");
+
+        // The alert list is always "most recent first", and always short.
+        builder.Entity<AlertRecord>().HasIndex(a => a.CreatedUtc);
+
+        // The endpoint identifies the device; re-subscribing must update rather than
+        // duplicate, or one phone would get the same notification several times.
+        builder.Entity<PushSubscriptionRecord>().HasIndex(p => p.Endpoint).IsUnique();
 
         builder.Entity<WateringPlan>()
             .HasMany(plan => plan.Zones)

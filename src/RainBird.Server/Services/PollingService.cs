@@ -74,20 +74,35 @@ public sealed class PollingService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var controllers = scope.ServiceProvider.GetRequiredService<ControllerService>();
+        var alerts = scope.ServiceProvider.GetRequiredService<AlertService>();
 
         var records = await db.Controllers.AsNoTracking().ToListAsync(ct);
 
         foreach (var record in records)
         {
             ct.ThrowIfCancellationRequested();
-            await PollOneAsync(db, controllers, record, ct);
+            await PollOneAsync(db, controllers, record, ct, alerts);
         }
 
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// When each controller was last heard from, and whether we have already said it
+    /// went quiet.
+    ///
+    /// A single missed poll is ordinary — the device is small and drops requests when
+    /// busy. Alerting on that would cry wolf several times a day, so nothing is said
+    /// until it has been silent for a good while.
+    /// </summary>
+    private static readonly TimeSpan SilenceBeforeAlerting = TimeSpan.FromMinutes(15);
+
+    private readonly Dictionary<int, DateTimeOffset> _lastSeen = [];
+    private readonly HashSet<int> _reportedOffline = [];
+
     private async Task PollOneAsync(
-        AppDbContext db, ControllerService controllers, ControllerRecord record, CancellationToken ct)
+        AppDbContext db, ControllerService controllers, ControllerRecord record, CancellationToken ct,
+        AlertService? alerts = null)
     {
         ControllerConnection connection;
         try
@@ -118,6 +133,18 @@ public sealed class PollingService : BackgroundService
 
             foreach (var wateringEvent in events)
                 await NotifyAsync(record.Id, wateringEvent, ct);
+
+            _lastSeen[record.Id] = now;
+
+            if (_reportedOffline.Remove(record.Id) && alerts is not null)
+            {
+                await alerts.RaiseAsync(
+                    AlertKind.ControllerRecovered,
+                    AlertSeverity.Info,
+                    $"{record.Name} is back",
+                    "The controller is responding again.",
+                    record.Id, ct);
+            }
         }
         catch (Exception ex) when (ex is RainBirdProtocolException or HttpRequestException or TaskCanceledException)
         {
@@ -127,7 +154,42 @@ public sealed class PollingService : BackgroundService
             await _hub.Clients
                 .Group(ControllerHub.GroupFor(record.Id))
                 .SendAsync("stateChanged", new { controllerId = record.Id, state = (object?)null, online = false }, ct);
+
+            await MaybeAlertOfflineAsync(record, alerts, ct);
         }
+    }
+
+    /// <summary>
+    /// Says something once the silence has gone on long enough to matter.
+    ///
+    /// Said once per outage, not once per poll — the alert is that the controller
+    /// stopped answering, and repeating it every few seconds for a device that is
+    /// unplugged for the winter would be worse than saying nothing.
+    /// </summary>
+    private async Task MaybeAlertOfflineAsync(
+        ControllerRecord record, AlertService? alerts, CancellationToken ct)
+    {
+        if (alerts is null || _reportedOffline.Contains(record.Id)) return;
+
+        // Never seen this controller answer since startup: start the clock now rather
+        // than firing immediately, so a restart while it is down stays quiet for the
+        // same grace period as anything else.
+        if (!_lastSeen.TryGetValue(record.Id, out var seen))
+        {
+            _lastSeen[record.Id] = DateTimeOffset.UtcNow;
+            return;
+        }
+
+        if (DateTimeOffset.UtcNow - seen < SilenceBeforeAlerting) return;
+
+        _reportedOffline.Add(record.Id);
+
+        await alerts.RaiseAsync(
+            AlertKind.ControllerOffline,
+            AlertSeverity.Problem,
+            $"{record.Name} is not responding",
+            $"No answer for {SilenceBeforeAlerting.TotalMinutes:0} minutes. Scheduled watering will not run while it is unreachable.",
+            record.Id, ct);
     }
 
     private async Task PersistAsync(

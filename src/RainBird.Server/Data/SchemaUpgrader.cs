@@ -24,6 +24,51 @@ public static class SchemaUpgrader
         await AddAutoDisabledAsync(db, logger, ct);
         await AddPlanTablesAsync(db, logger, ct);
         await AddUsersTableAsync(db, logger, ct);
+        await AddAlertTablesAsync(db, logger, ct);
+    }
+
+    /// <summary>
+    /// Alerts and push subscriptions arrived after accounts, so a database created
+    /// before them has neither table.
+    /// </summary>
+    private static async Task AddAlertTablesAsync(AppDbContext db, ILogger logger, CancellationToken ct)
+    {
+        if (await TableExistsAsync(db, "Alerts", ct)) return;
+
+        string[] statements =
+        [
+            """
+            CREATE TABLE "Alerts" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_Alerts" PRIMARY KEY AUTOINCREMENT,
+                "ControllerId" INTEGER NULL,
+                "Kind" INTEGER NOT NULL DEFAULT 0,
+                "Severity" INTEGER NOT NULL DEFAULT 0,
+                "Title" TEXT NOT NULL DEFAULT '',
+                "Detail" TEXT NOT NULL DEFAULT '',
+                "CreatedUtc" INTEGER NOT NULL DEFAULT 0,
+                "DeliveredCount" INTEGER NOT NULL DEFAULT 0
+            )
+            """,
+            """CREATE INDEX "IX_Alerts_CreatedUtc" ON "Alerts" ("CreatedUtc")""",
+            """
+            CREATE TABLE "PushSubscriptions" (
+                "Id" INTEGER NOT NULL CONSTRAINT "PK_PushSubscriptions" PRIMARY KEY AUTOINCREMENT,
+                "Endpoint" TEXT NOT NULL DEFAULT '',
+                "P256dh" TEXT NOT NULL DEFAULT '',
+                "Auth" TEXT NOT NULL DEFAULT '',
+                "UserId" INTEGER NOT NULL DEFAULT 0,
+                "Description" TEXT NOT NULL DEFAULT '',
+                "CreatedUtc" INTEGER NOT NULL DEFAULT 0,
+                "Failures" INTEGER NOT NULL DEFAULT 0
+            )
+            """,
+            """CREATE UNIQUE INDEX "IX_PushSubscriptions_Endpoint" ON "PushSubscriptions" ("Endpoint")""",
+        ];
+
+        foreach (var statement in statements)
+            await db.Database.ExecuteSqlRawAsync(statement, ct);
+
+        logger.LogInformation("Schema upgrade: added the alert and push subscription tables");
     }
 
     /// <summary>

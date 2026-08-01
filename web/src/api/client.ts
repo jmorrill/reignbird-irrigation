@@ -1,5 +1,7 @@
 import type {
   Account,
+  Alert,
+  AlertPreferences,
   ActivePlan,
   ArmedState,
   CalendarDay,
@@ -171,6 +173,19 @@ export const api = {
     me: () => get<Account>('/api/auth/me'),
     changePassword: (currentPassword: string, newPassword: string) =>
       post<Session>('/api/auth/password', { currentPassword, newPassword }),
+  },
+
+  alerts: {
+    key: () => get<{ publicKey: string }>('/api/alerts/key'),
+    recent: () => get<Alert[]>('/api/alerts'),
+    preferences: () =>
+      get<{ preferences: AlertPreferences; subscriptions: number }>('/api/alerts/preferences'),
+    savePreferences: (body: AlertPreferences) => put<AlertPreferences>('/api/alerts/preferences', body),
+    subscribe: (body: { endpoint: string; p256dh: string; auth: string; description: string }) =>
+      post<{ subscriptions: number }>('/api/alerts/subscribe', body),
+    unsubscribe: (endpoint: string) =>
+      post<{ subscriptions: number }>('/api/alerts/unsubscribe', { endpoint }),
+    test: () => post<{ delivered: number; subscriptions: number }>('/api/alerts/test'),
   },
 
   users: {

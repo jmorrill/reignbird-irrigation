@@ -89,20 +89,22 @@ public sealed class PlanExecutionService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var controllers = scope.ServiceProvider.GetRequiredService<ControllerService>();
+        var alerts = scope.ServiceProvider.GetRequiredService<AlertService>();
 
         foreach (var record in await db.Controllers.ToListAsync(ct))
         {
             if (_tracker.TryGet(record.Id, out var active))
-                await AdvanceAsync(db, controllers, record, active!, ct);
+                await AdvanceAsync(db, controllers, record, active!, ct, alerts);
             else
-                await MaybeStartAsync(db, controllers, record, ct);
+                await MaybeStartAsync(db, controllers, record, ct, alerts);
         }
     }
 
     // ------------------------------------------------------------- starting
 
     private async Task MaybeStartAsync(
-        AppDbContext db, ControllerService controllers, ControllerRecord record, CancellationToken ct)
+        AppDbContext db, ControllerService controllers, ControllerRecord record, CancellationToken ct,
+        AlertService? alerts = null)
     {
         var plans = await db.WateringPlans
             .Include(plan => plan.Zones)
@@ -131,7 +133,7 @@ public sealed class PlanExecutionService : BackgroundService
 
                 if (alreadyRan) continue;
 
-                await StartAsync(db, controllers, record, plan, today, startMinute, ct);
+                await StartAsync(db, controllers, record, plan, today, startMinute, ct, alerts);
                 return;
             }
         }
@@ -148,7 +150,8 @@ public sealed class PlanExecutionService : BackgroundService
         WateringPlan plan,
         DateOnly scheduledDate,
         int scheduledStartMinute,
-        CancellationToken ct)
+        CancellationToken ct,
+        AlertService? alerts = null)
     {
         var steps = PlanCompiler.Compile(plan, plan.Zones);
         if (steps.Count == 0)
@@ -207,7 +210,7 @@ public sealed class PlanExecutionService : BackgroundService
             plan.Name, record.Id, steps.Count, PlanCompiler.WateringMinutes(steps));
 
         await NotifyAsync(record.Id, "planStarted", run, ct);
-        await AdvanceAsync(db, controllers, record, _tracker.Get(record.Id)!, ct);
+        await AdvanceAsync(db, controllers, record, _tracker.Get(record.Id)!, ct, alerts);
         return run;
     }
 
@@ -218,7 +221,8 @@ public sealed class PlanExecutionService : BackgroundService
         ControllerService controllers,
         ControllerRecord record,
         ActivePlanRun active,
-        CancellationToken ct)
+        CancellationToken ct,
+        AlertService? alerts = null)
     {
         var now = DateTimeOffset.UtcNow;
 
@@ -244,7 +248,7 @@ public sealed class PlanExecutionService : BackgroundService
 
         if (nextIndex >= active.Steps.Count)
         {
-            await FinishAsync(db, record, active, PlanRunStatus.Completed, null, ct);
+            await FinishAsync(db, record, active, PlanRunStatus.Completed, null, ct, alerts);
             return;
         }
 
@@ -321,7 +325,8 @@ public sealed class PlanExecutionService : BackgroundService
         ActivePlanRun active,
         PlanRunStatus status,
         string? detail,
-        CancellationToken ct)
+        CancellationToken ct,
+        AlertService? alerts = null)
     {
         _tracker.Clear(record.Id);
 
@@ -336,6 +341,48 @@ public sealed class PlanExecutionService : BackgroundService
 
         _logger.LogInformation("Plan {Plan} {Status}", active.PlanName, status.ToString().ToLowerInvariant());
         if (run is not null) await NotifyAsync(record.Id, "planFinished", run, ct);
+
+        if (alerts is not null) await AlertForFinishAsync(alerts, record, active, status, detail, ct);
+    }
+
+    /// <summary>
+    /// Tells the user how a plan ended.
+    ///
+    /// A plan that failed is the case worth interrupting someone for: the lawn did
+    /// not get watered and nothing else will say so. Completion is reported too, but
+    /// is off by default — an app that announces every success is one whose
+    /// notifications get muted, taking the useful ones with them.
+    /// </summary>
+    private static async Task AlertForFinishAsync(
+        AlertService alerts,
+        ControllerRecord record,
+        ActivePlanRun active,
+        PlanRunStatus status,
+        string? detail,
+        CancellationToken ct)
+    {
+        switch (status)
+        {
+            case PlanRunStatus.Completed:
+                await alerts.RaiseAsync(
+                    AlertKind.PlanCompleted,
+                    AlertSeverity.Info,
+                    $"{active.PlanName} finished",
+                    $"Watering on {record.Name} completed as planned.",
+                    record.Id, ct);
+                break;
+
+            case PlanRunStatus.Failed:
+                await alerts.RaiseAsync(
+                    AlertKind.PlanFailed,
+                    AlertSeverity.Problem,
+                    $"{active.PlanName} did not finish",
+                    detail is { Length: > 0 }
+                        ? $"On {record.Name}: {detail}"
+                        : $"Watering on {record.Name} stopped before it was done.",
+                    record.Id, ct);
+                break;
+        }
     }
 
     /// <summary>
@@ -351,6 +398,7 @@ public sealed class PlanExecutionService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var controllers = scope.ServiceProvider.GetRequiredService<ControllerService>();
+        var alerts = scope.ServiceProvider.GetRequiredService<AlertService>();
 
         var record = await db.Controllers.FirstOrDefaultAsync(c => c.Id == controllerId, ct);
         if (record is null)
@@ -372,7 +420,7 @@ public sealed class PlanExecutionService : BackgroundService
             }
         }
 
-        await FinishAsync(db, record, active, PlanRunStatus.Cancelled, reason, ct);
+        await FinishAsync(db, record, active, PlanRunStatus.Cancelled, reason, ct, alerts);
     }
 
     // --------------------------------------------------------------- helpers

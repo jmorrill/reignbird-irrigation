@@ -1,12 +1,10 @@
 import { motion } from 'framer-motion';
 import { observer } from 'mobx-react-lite';
-import { useState } from 'react';
 import type { RunTrigger, WeatherDay } from '../api/types';
 import { AlertIcon, DropIcon, WeatherIcon, WindIcon } from '../components/Icons';
 import { StatusHero } from '../components/NowWatering';
-import { Button, Card, EmptyState, Pill, SectionHead, Segmented, Skeleton } from '../components/ui';
+import { Card, EmptyState, Pill, SectionHead, Skeleton } from '../components/ui';
 import { useStore } from '../stores/RootStore';
-import { describeFrequency, formatStartTime } from '../stores/ScheduleStore';
 
 export const EventsScreen = observer(function EventsScreen() {
   const { controllers } = useStore();
@@ -101,66 +99,28 @@ const WeatherCell = observer(function WeatherCell({ day, isToday }: { day: Weath
 
 /* --------------------------------------------------------------- timeline */
 
+/**
+ * What actually watered, most recent first.
+ *
+ * There used to be an Upcoming/Past toggle here. Upcoming has gone, for two reasons.
+ * It read the controller's own programs, and a watering plan works by leaving those
+ * empty and driving the valves from here — so on any controller using a plan it was
+ * structurally guaranteed to report "Nothing scheduled" for ever. And what it was
+ * trying to say is already answered twice: by the card at the top of this screen,
+ * which names the next run, and by the Schedules tab, which lists every plan and a
+ * month calendar.
+ *
+ * Looking backwards is the one thing nothing else on this screen does, so that is
+ * all this section does now.
+ */
 const RunTimeline = observer(function RunTimeline() {
-  const { history, schedules, controllers } = useStore();
-  const [view, setView] = useState<'upcoming' | 'past'>('past');
+  const { history } = useStore();
 
   return (
     <section>
-      <SectionHead
-        eyebrow="Activity"
-        title="Watering"
-        action={
-          <Segmented
-            label="Watering history"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: 'upcoming', label: 'Upcoming' },
-              { value: 'past', label: 'Past' },
-            ]}
-          />
-        }
-      />
+      <SectionHead eyebrow="Activity" title="Recent watering" />
 
-      {view === 'upcoming' ? (
-        schedules.active.length === 0 ? (
-          <Card>
-            <EmptyState
-              title="Nothing scheduled"
-              detail="Programs with a start time and at least one zone run time will appear here."
-            />
-          </Card>
-        ) : (
-          <div className="stack-sm">
-            {schedules.active.map((program) => {
-              const starts = program.startTimes.filter((time) => time >= 0 && time < 1440);
-              return (
-                <Card key={program.programNumber} className="run-card">
-                  <div className="run-card__lead">
-                    <span className="run-card__badge data">{program.label}</span>
-                  </div>
-                  <div className="run-card__body">
-                    <p className="run-card__title">
-                      {starts.map(formatStartTime).join(' · ') || 'No start time'}
-                    </p>
-                    <p className="run-card__meta">
-                      {describeFrequency(program)} · {program.totalMinutes} min
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => schedules.run(program.programNumber)}
-                    disabled={!controllers.online}
-                  >
-                    Run now
-                  </Button>
-                </Card>
-              );
-            })}
-          </div>
-        )
-      ) : history.runsByDay.length === 0 ? (
+      {history.runsByDay.length === 0 ? (
         <Card>
           <EmptyState
             title="No watering recorded yet"

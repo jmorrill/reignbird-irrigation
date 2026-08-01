@@ -168,6 +168,101 @@ public class SettingRecord
     public string Value { get; set; } = "";
 }
 
+/// <summary>Things worth telling somebody about.</summary>
+public enum AlertKind
+{
+    /// <summary>A plan could not be started, or stopped part-way through.</summary>
+    PlanFailed = 0,
+
+    /// <summary>A plan finished every zone it meant to water.</summary>
+    PlanCompleted = 1,
+
+    /// <summary>The controller has not answered for long enough to be worrying.</summary>
+    ControllerOffline = 2,
+
+    /// <summary>It is answering again.</summary>
+    ControllerRecovered = 3,
+
+    /// <summary>The controller reported a fault on a station — a short, or no solenoid.</summary>
+    ZoneFault = 4,
+
+    /// <summary>Watering was skipped because of the forecast.</summary>
+    WeatherSkip = 5,
+
+    /// <summary>Sent by the "send a test" button, so the whole path can be proven.</summary>
+    Test = 99,
+}
+
+/// <summary>How loudly to say it.</summary>
+public enum AlertSeverity
+{
+    Info = 0,
+    Warning = 1,
+    Problem = 2,
+}
+
+/// <summary>
+/// Something that happened, kept whether or not anyone was listening.
+///
+/// Push can fail for reasons this app never sees — permission revoked on the phone,
+/// a subscription quietly expired — so the record is written first and delivered
+/// second. Without that, a missed notification would leave no trace at all.
+/// </summary>
+public class AlertRecord
+{
+    public int Id { get; set; }
+    public int? ControllerId { get; set; }
+
+    public AlertKind Kind { get; set; }
+    public AlertSeverity Severity { get; set; }
+
+    [MaxLength(120)]
+    public string Title { get; set; } = "";
+
+    [MaxLength(500)]
+    public string Detail { get; set; } = "";
+
+    public DateTimeOffset CreatedUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>How many push subscriptions accepted it. Zero is worth being able to see.</summary>
+    public int DeliveredCount { get; set; }
+}
+
+/// <summary>
+/// One browser or phone that has agreed to receive notifications.
+///
+/// The endpoint is issued by the push service the browser chose, and is the address
+/// messages are sent to; the two keys encrypt the payload so that service cannot
+/// read it. All three come from the browser and are stored verbatim.
+/// </summary>
+public class PushSubscriptionRecord
+{
+    public int Id { get; set; }
+
+    [MaxLength(500)]
+    public string Endpoint { get; set; } = "";
+
+    [MaxLength(200)]
+    public string P256dh { get; set; } = "";
+
+    [MaxLength(200)]
+    public string Auth { get; set; } = "";
+
+    /// <summary>Which account subscribed, so signing out can take its devices with it.</summary>
+    public int UserId { get; set; }
+
+    [MaxLength(200)]
+    public string Description { get; set; } = "";
+
+    public DateTimeOffset CreatedUtc { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Consecutive send failures. A push service answering 404 or 410 means the
+    /// subscription is dead and should be dropped rather than retried for ever.
+    /// </summary>
+    public int Failures { get; set; }
+}
+
 /// <summary>
 /// Someone who may sign in. Every account is equal: anyone signed in can water,
 /// schedule, and add or remove other accounts.

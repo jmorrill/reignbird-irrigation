@@ -1,7 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import type { SipExchange } from '../api/types';
+import type { AlertPreferences, SipExchange } from '../api/types';
 import { InstallIcon, PlusIcon, SensorIcon } from '../components/Icons';
 import { LocationField } from '../components/LocationField';
 import {
@@ -43,6 +43,7 @@ export const SettingsScreen = observer(function SettingsScreen() {
 
       <SkipPanel />
       <AppearancePanel />
+      <NotificationsPanel />
       <AccountPanel />
       <UsersPanel />
       <InstallPanel />
@@ -525,6 +526,150 @@ const UsersPanel = observer(function UsersPanel() {
           </div>
         </div>
       ))}
+    </Card>
+  );
+});
+
+
+/* ------------------------------------------------------------ notifications */
+
+const ALERT_ROWS: { key: keyof AlertPreferences; label: string; hint: string }[] = [
+  { key: 'planFailed', label: 'A plan did not finish', hint: 'It could not start, or stopped part-way through.' },
+  { key: 'controllerOffline', label: 'Controller stopped answering', hint: 'After fifteen minutes of silence. Nothing will water while it is unreachable.' },
+  { key: 'controllerRecovered', label: 'Controller came back', hint: 'The other half of the message above.' },
+  { key: 'zoneFault', label: 'A zone reported a fault', hint: 'A short, or no solenoid on the wire.' },
+  { key: 'weatherSkip', label: 'Watering skipped for weather', hint: 'So a dry lawn after rain is explained.' },
+  { key: 'planCompleted', label: 'A plan finished normally', hint: 'Off by default — an app that reports every success gets muted.' },
+];
+
+const NotificationsPanel = observer(function NotificationsPanel() {
+  const { alerts, ui } = useStore();
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    void alerts.load();
+  }, [alerts]);
+
+  const toggle = async (key: keyof AlertPreferences, value: boolean) => {
+    if (!alerts.preferences) return;
+    try {
+      await alerts.savePreferences({ ...alerts.preferences, [key]: value });
+    } catch {
+      ui.notify('bad', 'Could not save that');
+    }
+  };
+
+  const sendTest = async () => {
+    setTesting(true);
+    try {
+      const delivered = await alerts.sendTest();
+      if (delivered > 0) {
+        ui.notify('good', `Test sent to ${delivered} ${delivered === 1 ? 'device' : 'devices'}`);
+      } else {
+        // Worth distinguishing: the alert was recorded, nothing received it.
+        ui.notify('warn', 'Nothing received it', 'The alert was recorded, but no device is subscribed.');
+      }
+    } catch {
+      ui.notify('bad', 'Could not send the test');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <SectionHead eyebrow="Alerts" title="Notifications" />
+
+      {!alerts.supported ? (
+        <p className="muted">
+          This browser cannot receive push notifications here. They need a secure connection —
+          HTTPS, or localhost — so over a plain <code>http://</code> address the browser does not
+          offer them at all.
+        </p>
+      ) : (
+        <>
+          <div className="setting-row">
+            <div className="setting-row__text">
+              <span className="setting-row__label">Notifications on this device</span>
+              <span className="setting-row__hint">
+                {alerts.blocked
+                  ? 'Blocked in your browser settings. Allow them for this site, then try again.'
+                  : alerts.subscribed
+                    ? `On. ${alerts.deviceCount} ${alerts.deviceCount === 1 ? 'device is' : 'devices are'} subscribed.`
+                    : 'Off. Your browser will ask permission.'}
+              </span>
+            </div>
+            <div className="setting-row__control">
+              <Button
+                size="sm"
+                tone={alerts.subscribed ? 'quiet' : 'primary'}
+                disabled={alerts.busy || alerts.blocked}
+                onClick={async () => {
+                  if (alerts.subscribed) {
+                    await alerts.disable();
+                    return;
+                  }
+                  const problem = await alerts.enable();
+                  if (problem) ui.notify('bad', 'Not turned on', problem);
+                }}
+              >
+                {alerts.busy ? 'Working…' : alerts.subscribed ? 'Turn off' : 'Turn on'}
+              </Button>
+            </div>
+          </div>
+
+          <div className="setting-row">
+            <div className="setting-row__text">
+              <span className="setting-row__label">Send a test</span>
+              <span className="setting-row__hint">
+                Proves the whole path — this server, the push service, and your phone's own
+                settings. Every one of those can fail without saying so.
+              </span>
+            </div>
+            <div className="setting-row__control">
+              <Button size="sm" disabled={testing} onClick={sendTest}>
+                {testing ? 'Sending…' : 'Send test'}
+              </Button>
+            </div>
+          </div>
+
+          {alerts.preferences && (
+            <>
+              <p className="muted">Tell me about:</p>
+              {ALERT_ROWS.map((row) => (
+                <Toggle
+                  key={row.key}
+                  label={row.label}
+                  hint={row.hint}
+                  checked={alerts.preferences![row.key]}
+                  onChange={(value) => void toggle(row.key, value)}
+                />
+              ))}
+            </>
+          )}
+
+          {alerts.recent.length > 0 && (
+            <>
+              <p className="muted">Recent alerts</p>
+              <div className="alert-list">
+                {alerts.recent.slice(0, 6).map((alert) => (
+                  <div key={alert.id} className={`alert-row alert-row--${alert.severity.toLowerCase()}`}>
+                    <span className="alert-row__text">
+                      <span className="alert-row__title">{alert.title}</span>
+                      <span className="alert-row__detail">{alert.detail}</span>
+                    </span>
+                    <span className="alert-row__when data">
+                      {new Date(alert.createdUtc).toLocaleString(undefined, {
+                        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </>
+      )}
     </Card>
   );
 });

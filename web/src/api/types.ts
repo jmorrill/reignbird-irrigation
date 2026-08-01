@@ -309,3 +309,23 @@ export interface Place {
   longitude: number;
   timeZoneId: string | null;
 }
+
+/** Which notifications are wanted. */
+export interface AlertPreferences {
+  planFailed: boolean;
+  planCompleted: boolean;
+  controllerOffline: boolean;
+  controllerRecovered: boolean;
+  zoneFault: boolean;
+  weatherSkip: boolean;
+}
+
+export interface Alert {
+  id: number;
+  kind: string;
+  severity: 'Info' | 'Warning' | 'Problem';
+  title: string;
+  detail: string;
+  createdUtc: string;
+  deliveredCount: number;
+}

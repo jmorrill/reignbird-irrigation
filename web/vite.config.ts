@@ -54,6 +54,10 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,woff2,png,svg,ico}'],
 
+        // Push and notification-click handling, kept in its own file so the rest of
+        // the worker stays generated rather than hand-maintained.
+        importScripts: ['push-handler.js'],
+
         // The shell is precached, so a cold start offline still renders the app
         // rather than the browser's dinosaur.
         navigateFallback: '/index.html',

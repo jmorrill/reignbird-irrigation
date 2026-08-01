@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using RainBird.Protocol;
 using Microsoft.EntityFrameworkCore;
+using Lib.Net.Http.WebPush;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using RainBird.Server.Api;
@@ -146,6 +147,19 @@ builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<WeatherService>();
 builder.Services.AddScoped<GeocodingService>();
 
+// ---------------------------------------------------------------- alerts
+
+// Read before the host is built, like the token signing key: a subscription is bound
+// to the public key it was made with, so this pair has to survive restarts or every
+// device that agreed to notifications stops receiving them.
+var vapid = VapidKeyStore.LoadOrCreate(dataDirectory, builder.Configuration);
+builder.Services.AddSingleton(vapid);
+
+builder.Services.AddHttpClient<PushServiceClient>()
+    .ConfigureHttpClient(client => client.Timeout = TimeSpan.FromSeconds(15));
+
+builder.Services.AddScoped<AlertService>();
+
 // The simulator lets the whole app run — and be demonstrated — with no hardware.
 var useSimulator = builder.Configuration.GetValue("RainBird:UseSimulator", false);
 if (useSimulator)
@@ -234,6 +248,7 @@ app.UseWhen(
     });
 
 app.MapAuthApi();
+app.MapAlertApi();
 app.MapRainBirdApi();
 app.MapPlanApi();
 app.MapHub<ControllerHub>("/hubs/controller");

@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import { AlertStore } from './AlertStore';
 import { AuthStore } from './AuthStore';
 import { ConnectionStore } from './ConnectionStore';
 import { ControllerStore } from './ControllerStore';
@@ -36,6 +37,7 @@ export class RootStore {
   // the app is constructed.
   readonly pwa = new PwaStore();
   readonly connection = new ConnectionStore(this);
+  readonly alerts = new AlertStore();
 
   async start() {
     await this.weather.loadSettings();
