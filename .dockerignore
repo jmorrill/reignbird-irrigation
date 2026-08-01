@@ -1,0 +1,39 @@
+# Keep the build context small. node_modules alone is ~300 MB and is rebuilt from
+# the lockfile inside the image anyway, so sending it would cost more than the whole
+# rest of the build.
+
+**/node_modules
+**/bin
+**/obj
+**/dist
+**/.vite
+
+# Built SPA output. The image builds this itself; copying a stale host build in
+# would silently ship whatever was last built on someone's laptop.
+src/RainBird.Server/wwwroot
+
+# Runtime state: the SQLite database, Data Protection keys and uploaded zone photos.
+# These are the one thing that must never end up baked into an image — the keys
+# decrypt stored controller passwords.
+src/RainBird.Server/store
+src/RainBird.Server/media
+
+.git
+.gitignore
+.github
+docs
+*.md
+!README.md
+
+.vs
+.vscode
+.idea
+**/*.user
+**/.DS_Store
+**/Thumbs.db
+
+# Verification screenshots
+/*.png
+.playwright-mcp
+test-results
+playwright-report

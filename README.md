@@ -70,6 +70,58 @@ Then add your controller from **Settings → Add controller**: its IP address on
 network and the device password set on the LNK module. Coordinates are optional and
 only needed for the forecast and weather skips.
 
+### With Docker
+
+```bash
+TZ=America/Los_Angeles docker compose up -d
+```
+
+Open <http://localhost:5056>. The image is self-contained — it carries its own copy
+of .NET, so the base image has no runtime in it at all — and runs as a non-root user
+on a chiseled base with no shell and no package manager.
+
+**Set `TZ`.** Watering plans run in local time. Without it every new controller
+defaults to UTC, which does not fail in any visible way; it just waters at the wrong
+hour. Any IANA name works.
+
+Two named volumes are created, and both matter. `/app/store` holds the SQLite
+database and the Data Protection keys that encrypt your controller passwords — lose
+it and every controller has to be added again. `/app/media` holds zone photos.
+
+#### Building for another architecture
+
+`linux/amd64` and `linux/arm64` are both supported — a Raspberry Pi 4 or 5 on 64-bit
+Linux is a good home for this.
+
+```bash
+docker buildx build --platform linux/arm64 -t reignbird:arm64 --load .
+```
+
+Cross-building costs nothing here. Every stage that runs a command is pinned to the
+machine's own architecture and only the final stage takes the target's, so the .NET
+SDK cross-publishes and the last stage merely copies files. Nothing runs under QEMU.
+Both architectures at once, straight to a registry:
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t <registry>/reignbird:1.0 --push .
+```
+
+#### Without a Dockerfile
+
+The .NET SDK builds images itself, which is the mechanism Visual Studio's container
+publishing uses. The project already carries the image metadata, so this is enough:
+
+```bash
+cd web && npm ci && npm run build
+cd ../src
+dotnet publish RainBird.Server -c Release -r linux-arm64 --self-contained -t:PublishContainer
+```
+
+That produces the same kind of image without Docker doing the building — useful in a
+pipeline that has the SDK but no daemon. It loads single-architecture images into a
+local daemon; for a multi-architecture manifest, publish it to a registry instead
+with `-p:ContainerRegistry=...`.
+
 ### Installing it as an app
 
 Open it in Chrome or Edge and use **Settings → Install**, or the install icon in the
@@ -149,6 +201,8 @@ src/
   RainBird.Server/         ASP.NET Core 10 — API, SignalR, EF Core/SQLite, plan engine
   RainBird.Server.Tests/   xUnit — the scheduling logic
 web/                       React 19 + TypeScript + MobX + Framer Motion
+Dockerfile                 multi-arch, self-contained, chiseled non-root image
+compose.yaml               the same image with volumes for state and photos
 ```
 
 `RainBird.Protocol` has no dependency on ASP.NET or the database and can be lifted

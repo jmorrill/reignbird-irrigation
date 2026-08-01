@@ -6,6 +6,32 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!--
+    Container metadata for the SDK's built-in container publishing, so that a publish
+    with /t:PublishContainer, a linux RID and self-contained turned on (see the README
+    for the exact command; the flag cannot be written in an XML comment) produces an
+    image with no Dockerfile involved. See the Dockerfile for why the base
+    image is the `-extra` chiseled one rather than the smaller plain variant: this app
+    schedules in local time and is useless without tzdata.
+
+    Trimming is deliberately off. EF Core resolves types by reflection, and a trimmed
+    build of it fails at runtime rather than at publish, which is the worst place to
+    find out.
+  -->
+  <PropertyGroup>
+    <ContainerRepository>reignbird</ContainerRepository>
+    <ContainerBaseImage>mcr.microsoft.com/dotnet/runtime-deps:10.0-noble-chiseled-extra</ContainerBaseImage>
+    <ContainerRuntimeIdentifiers>linux-x64;linux-arm64</ContainerRuntimeIdentifiers>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ContainerPort Include="5056" Type="tcp" />
+    <ContainerEnvironmentVariable Include="ASPNETCORE_HTTP_PORTS" Value="5056" />
+    <ContainerEnvironmentVariable Include="DOTNET_gcServer" Value="0" />
+    <ContainerEnvironmentVariable Include="TZ" Value="Etc/UTC" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.10" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
@@ -20,5 +46,46 @@
     <ProjectReference Include="..\RainBird.Protocol\RainBird.Protocol.csproj" />
     <ProjectReference Include="..\RainBird.Simulator\RainBird.Simulator.csproj" />
   </ItemGroup>
+
+  <!--
+    Publishing a server with an empty wwwroot produces something that starts happily
+    and then 404s every page, which reads as a runtime bug rather than a missing build
+    step. So a publish builds the SPA itself unless told not to.
+
+    The condition is evaluated once, before any target runs, and that timing is the
+    whole trick. MSBuild expands the wwwroot glob at evaluation too, so when the SPA is
+    already built its files are collected normally and these targets do nothing. When
+    it is not, that glob came back empty and the files produced later have to be added
+    to the publish list by hand — doing both would publish every asset twice.
+  -->
+  <PropertyGroup>
+    <SpaRoot>$(MSBuildProjectDirectory)\..\..\web</SpaRoot>
+    <_SpaAlreadyBuilt Condition="Exists('$(MSBuildProjectDirectory)\wwwroot\index.html')">true</_SpaAlreadyBuilt>
+  </PropertyGroup>
+
+  <Target Name="BuildSpa"
+          BeforeTargets="ComputeFilesToPublish"
+          Condition="'$(SkipSpaBuild)' != 'true' AND '$(_SpaAlreadyBuilt)' != 'true'">
+    <Message Importance="high" Text="Building the SPA in $(SpaRoot) — pass -p:SkipSpaBuild=true to skip" />
+    <Exec Command="npm ci" WorkingDirectory="$(SpaRoot)" />
+    <Exec Command="npm run build" WorkingDirectory="$(SpaRoot)" />
+  </Target>
+
+  <Target Name="IncludeSpaInPublish"
+          AfterTargets="ComputeFilesToPublish"
+          Condition="'$(SkipSpaBuild)' != 'true' AND '$(_SpaAlreadyBuilt)' != 'true'">
+    <ItemGroup>
+      <_SpaOutput Include="$(MSBuildProjectDirectory)\wwwroot\**\*" />
+      <ResolvedFileToPublish Include="@(_SpaOutput)"
+                             RelativePath="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+                             CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Whichever route got here, refuse to call a UI-less publish a success. -->
+  <Target Name="VerifySpaPublished" AfterTargets="Publish">
+    <Error Condition="!Exists('$(PublishDir)wwwroot\index.html')"
+           Text="Published output has no wwwroot/index.html, so the server would serve no interface. Build the SPA with 'npm run build' in web/, or leave SkipSpaBuild unset so publish builds it." />
+  </Target>
 
 </Project>

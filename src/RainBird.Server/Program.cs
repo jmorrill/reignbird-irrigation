@@ -9,6 +9,11 @@ using RainBird.Server.Data;
 using RainBird.Server.Hubs;
 using RainBird.Server.Services;
 
+// The container image is chiseled: no shell, no curl, nothing to write a health
+// check with. So the app checks itself. This runs before anything is built, so it
+// costs a process start and one loopback request rather than a second web host.
+if (args.Contains("--healthcheck")) return await RunHealthCheckAsync();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // ---------------------------------------------------------------- persistence
@@ -135,6 +140,33 @@ app.MapFallbackToFile("index.html");
 WarnIfReachableFromTheNetwork(app);
 
 app.Run();
+
+// Reached when the host shuts down cleanly. Present because the health-check path
+// above returns an exit code, which obliges every path to do the same.
+return 0;
+
+/// <summary>
+/// Asks the running server whether it is healthy. Exit code 0 means yes.
+/// </summary>
+static async Task<int> RunHealthCheckAsync()
+{
+    // Whatever the app was told to listen on, ask there. A check hard-coded to 5056
+    // would report a healthy container as sick the moment the port is overridden.
+    var ports = Environment.GetEnvironmentVariable("ASPNETCORE_HTTP_PORTS");
+    var port = string.IsNullOrWhiteSpace(ports) ? "5056" : ports.Split(';')[0].Trim();
+
+    using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(4) };
+
+    try
+    {
+        using var response = await client.GetAsync($"http://127.0.0.1:{port}/api/health");
+        return response.IsSuccessStatusCode ? 0 : 1;
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+    {
+        return 1;
+    }
+}
 
 /// <summary>
 /// Static file types the built-in map may not know.

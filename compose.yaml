@@ -1,0 +1,40 @@
+services:
+  reignbird:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: reignbird:latest
+    container_name: reignbird
+    restart: unless-stopped
+
+    # The controller lives on your LAN and the app finds it by IP, so the container
+    # needs a route to it. Bridge networking is fine for that — this is not a
+    # discovery-by-broadcast setup. Use host networking only if you actually need it.
+    ports:
+      - "5056:5056"
+
+    environment:
+      # Set this. Watering plans run in local time, and without it every new
+      # controller defaults to UTC — which does not error, it just waters at the
+      # wrong hour. Any IANA name works: America/Los_Angeles, Europe/London.
+      TZ: ${TZ:-Etc/UTC}
+
+    volumes:
+      # The SQLite database and the Data Protection keys that encrypt controller
+      # passwords. Lose this and every controller has to be added again.
+      - reignbird-store:/app/store
+      # Zone photos.
+      - reignbird-media:/app/media
+
+    # There is no shell in the image, so this uses the app's own health endpoint
+    # rather than curl, which is not there either.
+    healthcheck:
+      test: ["CMD", "/app/RainBird.Server", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  reignbird-store:
+  reignbird-media:
