@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RainBird.Protocol;
+using RainBird.Server.Api;
 using RainBird.Server.Data;
 using RainBird.Server.Hubs;
 
@@ -22,6 +23,7 @@ public sealed class PollingService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ControllerRegistry _registry;
     private readonly HistoryRecorder _recorder;
+    private readonly RunClock _clock;
     private readonly IHubContext<ControllerHub> _hub;
     private readonly ILogger<PollingService> _logger;
 
@@ -29,12 +31,14 @@ public sealed class PollingService : BackgroundService
         IServiceScopeFactory scopeFactory,
         ControllerRegistry registry,
         HistoryRecorder recorder,
+        RunClock clock,
         IHubContext<ControllerHub> hub,
         ILogger<PollingService> logger)
     {
         _scopeFactory = scopeFactory;
         _registry = registry;
         _recorder = recorder;
+        _clock = clock;
         _hub = hub;
         _logger = logger;
     }
@@ -129,7 +133,13 @@ public sealed class PollingService : BackgroundService
 
             await _hub.Clients
                 .Group(ControllerHub.GroupFor(record.Id))
-                .SendAsync("stateChanged", new { controllerId = record.Id, state, online = true }, ct);
+                .SendAsync(
+                    "stateChanged",
+                    // The DTO, not the raw model: it is where the countdown gets filled
+                    // in for firmware that cannot report one, and pushing the model
+                    // straight out bypassed that entirely.
+                    new { controllerId = record.Id, state = ControllerStateDto.From(state, _clock, record.Id), online = true },
+                    ct);
 
             foreach (var wateringEvent in events)
                 await NotifyAsync(record.Id, wateringEvent, ct);

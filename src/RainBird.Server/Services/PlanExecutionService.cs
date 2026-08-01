@@ -43,18 +43,21 @@ public sealed class PlanExecutionService : BackgroundService
     private readonly IHubContext<ControllerHub> _hub;
     private readonly ILogger<PlanExecutionService> _logger;
     private readonly PlanRunTracker _tracker;
+    private readonly RunClock _clock;
 
     public PlanExecutionService(
         IServiceScopeFactory scopeFactory,
         ControllerRegistry registry,
         IHubContext<ControllerHub> hub,
         PlanRunTracker tracker,
+        RunClock clock,
         ILogger<PlanExecutionService> logger)
     {
         _scopeFactory = scopeFactory;
         _registry = registry;
         _hub = hub;
         _tracker = tracker;
+        _clock = clock;
         _logger = logger;
     }
 
@@ -270,6 +273,7 @@ public sealed class PlanExecutionService : BackgroundService
             // valve open.
             var minutes = Math.Clamp(next.Minutes, 1, MaxStepMinutes);
             await connection.Client.RunStationAsync(next.StationNumber!.Value, minutes, ct);
+            _clock.Started(record.Id, next.StationNumber!.Value, minutes);
             connection.NoteCommandedRun(next.StationNumber, RunTrigger.Program, TimeSpan.FromMinutes(minutes + 2));
 
             await MarkStepAsync(db, active.RunId, nextIndex, PlanStepStatus.Running, now, ct);
@@ -329,6 +333,7 @@ public sealed class PlanExecutionService : BackgroundService
         AlertService? alerts = null)
     {
         _tracker.Clear(record.Id);
+        _clock.Cleared(record.Id);
 
         var run = await db.PlanRuns.FirstOrDefaultAsync(r => r.Id == active.RunId, ct);
         if (run is not null)

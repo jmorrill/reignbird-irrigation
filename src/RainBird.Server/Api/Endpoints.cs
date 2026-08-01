@@ -95,7 +95,8 @@ public static class Endpoints
     }
 
     private static async Task<ControllerSummary> SummarizeAsync(
-        AppDbContext db, ControllerRecord record, ControllerRegistry registry, CancellationToken ct)
+        AppDbContext db, ControllerRecord record, ControllerRegistry registry, RunClock clock,
+        CancellationToken ct)
     {
         var connection = registry.Find(record.Id);
         _ = db; _ = ct;
@@ -114,7 +115,7 @@ public static class Endpoints
             record.Latitude,
             record.Longitude,
             record.TimeZoneId,
-            connection?.LastState is { } state ? ControllerStateDto.From(state) : null);
+            connection?.LastState is { } state ? ControllerStateDto.From(state, clock, record.Id) : null);
     }
 
     private static async Task<ScheduleClient?> ScheduleForAsync(
@@ -140,20 +141,20 @@ public static class Endpoints
     {
         var group = api.MapGroup("/controllers");
 
-        group.MapGet("/", async (AppDbContext db, ControllerRegistry registry, CancellationToken ct) =>
+        group.MapGet("/", async (AppDbContext db, ControllerRegistry registry, RunClock clock, CancellationToken ct) =>
         {
             var records = await db.Controllers.OrderBy(c => c.Id).ToListAsync(ct);
             var summaries = new List<ControllerSummary>(records.Count);
             foreach (var record in records)
-                summaries.Add(await SummarizeAsync(db, record, registry, ct));
+                summaries.Add(await SummarizeAsync(db, record, registry, clock, ct));
             return Results.Ok(summaries);
         });
 
         group.MapGet("/{id:int}", async (
-            int id, AppDbContext db, ControllerRegistry registry, CancellationToken ct) =>
+            int id, AppDbContext db, ControllerRegistry registry, RunClock clock, CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
-            return error ?? Results.Ok(await SummarizeAsync(db, record!, registry, ct));
+            return error ?? Results.Ok(await SummarizeAsync(db, record!, registry, clock, ct));
         });
 
         group.MapPost("/", async (
@@ -161,6 +162,7 @@ public static class Endpoints
             AppDbContext db,
             ControllerService controllers,
             ControllerRegistry registry,
+            RunClock clock,
             CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Host))
@@ -200,7 +202,7 @@ public static class Endpoints
 
                 return Results.Created(
                     $"/api/controllers/{record.Id}",
-                    await SummarizeAsync(db, record, registry, ct));
+                    await SummarizeAsync(db, record, registry, clock, ct));
             });
         });
 
@@ -210,6 +212,7 @@ public static class Endpoints
             AppDbContext db,
             ControllerService controllers,
             ControllerRegistry registry,
+            RunClock clock,
             CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
@@ -223,7 +226,7 @@ public static class Endpoints
             if (request.TimeZoneId is not null) record!.TimeZoneId = request.TimeZoneId;
 
             await db.SaveChangesAsync(ct);
-            return Results.Ok(await SummarizeAsync(db, record!, registry, ct));
+            return Results.Ok(await SummarizeAsync(db, record!, registry, clock, ct));
         });
 
         group.MapDelete("/{id:int}", async (
@@ -239,7 +242,7 @@ public static class Endpoints
         });
 
         group.MapGet("/{id:int}/state", async (
-            int id, AppDbContext db, ControllerService controllers, CancellationToken ct) =>
+            int id, AppDbContext db, ControllerService controllers, RunClock clock, CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
             if (error is not null) return error;
@@ -256,7 +259,7 @@ public static class Endpoints
                 && connection.LastSeenUtc is { } seen
                 && DateTimeOffset.UtcNow - seen < StateFreshness)
             {
-                return Results.Ok(ControllerStateDto.From(cached));
+                return Results.Ok(ControllerStateDto.From(cached, clock, id));
             }
 
             return await DeviceAsync(async () =>
@@ -264,7 +267,7 @@ public static class Endpoints
                 var state = await connection.Client.GetCombinedStateAsync(ct);
                 connection.LastState = state;
                 connection.LastSeenUtc = DateTimeOffset.UtcNow;
-                return Results.Ok(ControllerStateDto.From(state));
+                return Results.Ok(ControllerStateDto.From(state, clock, id));
             });
         });
 
@@ -412,7 +415,7 @@ public static class Endpoints
         group.MapPost("/zones/{station:int}/run", async (
             int id, int station, RunZoneRequest request,
             AppDbContext db, ControllerService controllers,
-            PlanExecutionService plans, CancellationToken ct) =>
+            PlanExecutionService plans, RunClock clock, CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
             if (error is not null) return error;
@@ -428,6 +431,8 @@ public static class Endpoints
             {
                 var connection = controllers.Connect(record!);
                 await connection.Client.RunStationAsync(station, request.Minutes, ct);
+                // The device may not report a countdown; this is what fills it in.
+                clock.Started(id, station, request.Minutes);
                 // So the history can say this was started by hand rather than by the
                 // controller's own schedule.
                 connection.NoteCommandedRun(station, RunTrigger.Manual,
@@ -455,7 +460,7 @@ public static class Endpoints
 
         group.MapPost("/stop", async (
             int id, AppDbContext db, ControllerService controllers,
-            PlanExecutionService plans, CancellationToken ct) =>
+            PlanExecutionService plans, RunClock clock, CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
             if (error is not null) return error;
@@ -463,6 +468,9 @@ public static class Endpoints
             // Stop means stop: a plan part way through its queue would otherwise open
             // the next zone a few seconds later.
             await plans.CancelAsync(id, "Watering was stopped.", ct);
+
+            // Nothing is running now, so no countdown should be reported.
+            clock.Cleared(id);
 
             return await DeviceAsync(async () =>
             {

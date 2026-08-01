@@ -82,7 +82,17 @@ public sealed record ControllerStateDto(
     int RemainingRuntimeSeconds,
     int SeasonalAdjustPercent)
 {
-    public static ControllerStateDto From(CombinedState state) => new(
+    /// <summary>
+    /// Maps device state for the client, filling in the countdown when the hardware
+    /// does not report one.
+    ///
+    /// Firmware without SIP <c>4C</c> has no command that returns seconds remaining,
+    /// so it always reads zero — a timer showing 0:00 beside a zone that is visibly
+    /// watering. Every run this app starts is a timed one, so when the device leaves
+    /// the countdown blank, what the app itself scheduled is the better answer. The
+    /// device still wins whenever it has something to say.
+    /// </summary>
+    public static ControllerStateDto From(CombinedState state, RunClock? clock = null, int controllerId = 0) => new(
         state.ControllerTime.ToString("HH:mm:ss"),
         state.ControllerDate.ToString("yyyy-MM-dd"),
         state.RainDelayDays,
@@ -90,7 +100,9 @@ public sealed record ControllerStateDto(
         state.ControllerEnabled,
         state.IsWatering,
         state.ActiveStation,
-        state.RemainingRuntimeSeconds,
+        state.RemainingRuntimeSeconds > 0
+            ? state.RemainingRuntimeSeconds
+            : clock?.RemainingSeconds(controllerId, state.ActiveStation) ?? 0,
         state.SeasonalAdjustPercent);
 }
 

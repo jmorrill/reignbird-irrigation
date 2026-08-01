@@ -141,6 +141,7 @@ builder.Services.AddHttpClient("weather", client =>
 
 builder.Services.AddSingleton<ControllerRegistry>();
 builder.Services.AddSingleton<HistoryRecorder>();
+builder.Services.AddSingleton<RunClock>();
 builder.Services.AddSingleton<SkipEvaluator>();
 builder.Services.AddScoped<ControllerService>();
 builder.Services.AddScoped<SettingsService>();
