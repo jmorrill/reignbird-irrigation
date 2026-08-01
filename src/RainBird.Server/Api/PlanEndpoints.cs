@@ -151,9 +151,9 @@ public static class PlanEndpoints
                 .OrderBy(plan => plan.SortOrder)
                 .ToListAsync(ct);
 
-            var dtos = new List<PlanDto>(plans.Count);
-            foreach (var plan in plans) dtos.Add(await ToDtoAsync(db, plan, ct));
-            return Results.Ok(dtos);
+            // Read once for the whole list rather than once per plan.
+            var context = await LoadContextAsync(db, id, ct);
+            return Results.Ok(plans.Select(plan => ToDto(plan, context)).ToList());
         });
 
         group.MapGet("/plans/{planId:int}", async (
@@ -240,7 +240,9 @@ public static class PlanEndpoints
 
             // Recorded against the current minute so a manual run does not also block
             // a genuinely scheduled pass later in the day.
-            var run = await engine.StartAsync(
+            // StartNowAsync, not StartAsync: this arrives from an HTTP handler and
+            // has to take the controller's operation lock.
+            var run = await engine.StartNowAsync(
                 db, controllers, record, plan,
                 DateOnly.FromDateTime(localNow.DateTime),
                 localNow.Hour * 60 + localNow.Minute,
@@ -485,19 +487,40 @@ public static class PlanEndpoints
         return null;
     }
 
-    private static async Task<PlanDto> ToDtoAsync(AppDbContext db, WateringPlan plan, CancellationToken ct)
+    /// <summary>
+    /// The per-controller facts every plan DTO needs, read once.
+    ///
+    /// Listing plans used to re-read the zone names and the controller row for each
+    /// plan in the list, so the endpoint cost 1 + 2N queries to answer a question
+    /// whose extra data was identical every time.
+    /// </summary>
+    private sealed record PlanContext(IReadOnlyDictionary<int, string> ZoneNames, TimeSpan Offset);
+
+    private static async Task<PlanContext> LoadContextAsync(
+        AppDbContext db, int controllerId, CancellationToken ct)
+    {
+        var zoneNames = await db.Zones
+            .Where(zone => zone.ControllerId == controllerId)
+            .ToDictionaryAsync(zone => zone.StationNumber, zone => zone.Name, ct);
+
+        var timeZoneId = await db.Controllers
+            .AsNoTracking()
+            .Where(c => c.Id == controllerId)
+            .Select(c => c.TimeZoneId)
+            .FirstOrDefaultAsync(ct);
+
+        return new PlanContext(zoneNames, PlanExecutionService.ZoneOffset(timeZoneId ?? TimeZoneInfo.Local.Id));
+    }
+
+    private static async Task<PlanDto> ToDtoAsync(AppDbContext db, WateringPlan plan, CancellationToken ct) =>
+        ToDto(plan, await LoadContextAsync(db, plan.ControllerId, ct));
+
+    private static PlanDto ToDto(WateringPlan plan, PlanContext context)
     {
         var steps = PlanCompiler.Compile(plan, plan.Zones);
 
-        var zoneNames = await db.Zones
-            .Where(zone => zone.ControllerId == plan.ControllerId)
-            .ToDictionaryAsync(zone => zone.StationNumber, zone => zone.Name, ct);
-
-        var controller = await db.Controllers
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == plan.ControllerId, ct);
-
-        var offset = PlanExecutionService.ZoneOffset(controller?.TimeZoneId ?? TimeZoneInfo.Local.Id);
+        var zoneNames = context.ZoneNames;
+        var offset = context.Offset;
         var passes = plan.StartTimeMinutes.Count;
         var wateringPerPass = PlanCompiler.WateringMinutes(steps);
 

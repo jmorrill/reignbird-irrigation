@@ -443,10 +443,21 @@ public static class Endpoints
 
         group.MapPost("/zones/{station:int}/queue", async (
             int id, int station, RunZoneRequest request,
-            AppDbContext db, ControllerService controllers, CancellationToken ct) =>
+            AppDbContext db, ControllerService controllers,
+            PlanExecutionService plans, CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
             if (error is not null) return error;
+
+            // Same bounds as the immediate run beside it. Without these the duration
+            // was masked to a byte further down, so -1 asked for 255 minutes.
+            if (request.Minutes is < 1 or > 255)
+                return Results.BadRequest(new { message = "Run time must be between 1 and 255 minutes." });
+
+            // Same reasoning as starting a zone by hand: queueing behind a plan
+            // produces watering the plan does not know about, and its next step would
+            // interrupt it anyway. Taking the controller means taking it.
+            await plans.CancelAsync(id, "A zone was queued by hand.", ct);
 
             return await DeviceAsync(async () =>
             {
@@ -480,10 +491,16 @@ public static class Endpoints
         });
 
         group.MapPost("/advance", async (
-            int id, AppDbContext db, ControllerService controllers, CancellationToken ct) =>
+            int id, AppDbContext db, ControllerService controllers,
+            PlanExecutionService plans, CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
             if (error is not null) return error;
+
+            // Skipping a zone by hand moves the hardware on while the plan keeps
+            // counting its own steps, so the two disagree from then on about which
+            // zone is running.
+            await plans.CancelAsync(id, "Watering was advanced by hand.", ct);
 
             return await DeviceAsync(async () =>
             {
@@ -680,10 +697,15 @@ public static class Endpoints
         });
 
         group.MapPost("/{program:int}/run", async (
-            int id, int program, AppDbContext db, ControllerService controllers, CancellationToken ct) =>
+            int id, int program, AppDbContext db, ControllerService controllers,
+            PlanExecutionService plans, CancellationToken ct) =>
         {
             var (record, error) = await LoadAsync(db, id, ct);
             if (error is not null) return error;
+
+            // The controller's own program and an app plan watering the same zones at
+            // once is the exact situation the plan engine exists to avoid.
+            await plans.CancelAsync(id, "A controller program was started by hand.", ct);
 
             return await DeviceAsync(async () =>
             {
@@ -817,13 +839,26 @@ public static class Endpoints
             if (error is not null) return error;
 
             var forecast = await weather.GetForecastAsync(db, record!, ct);
+            if (forecast.Count == 0) return Results.Ok(Array.Empty<WeatherDayDto>());
+
+            // Bounded to the days actually being returned. Both of these used to load
+            // the entire history of the installation to answer a question about a
+            // twelve-day window, so the cost of rendering the forecast strip grew for
+            // ever even though the answer never got bigger.
+            var first = forecast.Min(day => day.Date);
+            var last = forecast.Max(day => day.Date);
 
             var skips = await db.SkipEvents
-                .Where(s => s.ControllerId == id)
+                .Where(s => s.ControllerId == id && s.Date >= first && s.Date <= last)
                 .ToListAsync(ct);
 
+            var windowStart = first.ToDateTime(TimeOnly.MinValue);
+            var windowEnd = last.ToDateTime(TimeOnly.MaxValue);
+
             var runDates = await db.Runs
-                .Where(s => s.ControllerId == id)
+                .Where(r => r.ControllerId == id
+                    && r.StartedUtc >= new DateTimeOffset(windowStart, TimeSpan.Zero)
+                    && r.StartedUtc <= new DateTimeOffset(windowEnd, TimeSpan.Zero))
                 .Select(r => r.StartedUtc)
                 .ToListAsync(ct);
 

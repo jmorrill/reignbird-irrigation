@@ -27,6 +27,10 @@ public record SessionResponse(string Token, DateTimeOffset ExpiresUtc, UserRespo
 /// </summary>
 public static class AuthEndpoints
 {
+    /// <summary>Names the limiter applied to sign-in; registered in Program.cs.</summary>
+    public const string SignInRateLimitPolicy = "sign-in";
+
+
     public static void MapAuthApi(this WebApplication app)
     {
         // Authorised by default; the three routes that cannot be are marked
@@ -51,20 +55,22 @@ public static class AuthEndpoints
 
             var token = users.IssueToken(user);
             return Results.Ok(new SessionResponse(token.Token, token.ExpiresUtc, UserResponse.From(user)));
-        }).AllowAnonymous();
+        }).AllowAnonymous().RequireRateLimiting(SignInRateLimitPolicy);
 
         // Creates the very first account, and only ever that one. Once any account
         // exists this route is closed, so it cannot be used to add a second.
         auth.MapPost("/setup", async (
             [FromBody] CreateUserRequest request, AuthService users, CancellationToken ct) =>
         {
-            if (await users.AnyUsersAsync(ct))
-                return Results.Conflict(new { message = "Setup has already been completed. Sign in instead." });
-
             if (Invalid(request.Username, request.Password) is { } problem)
                 return Results.BadRequest(new { message = problem });
 
-            var user = await users.CreateAsync(request.Username!.Trim(), request.Password!, ct);
+            // Checked and created together, so two requests arriving at once cannot
+            // both find an empty table and both create an account.
+            var user = await users.CreateFirstAsync(request.Username!.Trim(), request.Password!, ct);
+            if (user is null)
+                return Results.Conflict(new { message = "Setup has already been completed. Sign in instead." });
+
             var token = users.IssueToken(user);
 
             return Results.Ok(new SessionResponse(token.Token, token.ExpiresUtc, UserResponse.From(user)));
@@ -123,7 +129,8 @@ public static class AuthEndpoints
         });
 
         accounts.MapDelete("/{id:int}", async (
-            int id, ClaimsPrincipal principal, AuthService users, CancellationToken ct) =>
+            int id, ClaimsPrincipal principal, AuthService users, AlertService alerts,
+            CancellationToken ct) =>
         {
             var user = await users.FindAsync(id, ct);
             if (user is null) return Results.NotFound(new { message = "No such account." });
@@ -136,6 +143,11 @@ public static class AuthEndpoints
 
             if ((await users.ListAsync(ct)).Count <= 1)
                 return Results.BadRequest(new { message = "This is the only account. Add another before removing it." });
+
+            // Their phone must stop receiving notifications about a garden they can no
+            // longer see. The subscription recorded which account it belonged to and
+            // nothing had ever used it.
+            await alerts.RemoveSubscriptionsForUserAsync(user.Id, ct);
 
             await users.DeleteAsync(user, ct);
             return Results.NoContent();

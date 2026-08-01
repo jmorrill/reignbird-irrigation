@@ -35,15 +35,13 @@ public sealed class PlanExecutionService : BackgroundService
     /// </summary>
     private static readonly TimeSpan StepGrace = TimeSpan.FromSeconds(45);
 
-    /// <summary>The longest single run SIP 39 can express.</summary>
-    private const int MaxStepMinutes = 255;
-
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ControllerRegistry _registry;
     private readonly IHubContext<ControllerHub> _hub;
     private readonly ILogger<PlanExecutionService> _logger;
     private readonly PlanRunTracker _tracker;
     private readonly RunClock _clock;
+    private readonly ControllerOperations _operations;
 
     public PlanExecutionService(
         IServiceScopeFactory scopeFactory,
@@ -51,6 +49,7 @@ public sealed class PlanExecutionService : BackgroundService
         IHubContext<ControllerHub> hub,
         PlanRunTracker tracker,
         RunClock clock,
+        ControllerOperations operations,
         ILogger<PlanExecutionService> logger)
     {
         _scopeFactory = scopeFactory;
@@ -58,6 +57,7 @@ public sealed class PlanExecutionService : BackgroundService
         _hub = hub;
         _tracker = tracker;
         _clock = clock;
+        _operations = operations;
         _logger = logger;
     }
 
@@ -65,6 +65,11 @@ public sealed class PlanExecutionService : BackgroundService
     {
         try { await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken); }
         catch (OperationCanceledException) { return; }
+
+        // Before the first tick: a run left Running by a restart owns nothing and will
+        // never advance, so it has to be closed out rather than sit there for ever.
+        try { await ReconcileInterruptedRunsAsync(stoppingToken); }
+        catch (Exception ex) { _logger.LogError(ex, "Could not reconcile interrupted plan runs"); }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -87,6 +92,57 @@ public sealed class PlanExecutionService : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Settles plan runs left mid-flight by a restart.
+    ///
+    /// Ownership of a running plan lives in memory, so a restart loses it while the
+    /// database row stays `Running` for ever and the remaining zones never water. The
+    /// entity comment claimed a restart was "recoverable", which was not true of the
+    /// code — this makes it at least honest, and tells somebody.
+    ///
+    /// Resuming is deliberately not attempted. The step that was in flight is bounded
+    /// by the controller's own timer and has long since closed; picking the queue back
+    /// up would mean guessing how much of it happened, and guessing wrong means
+    /// watering a zone twice. Marking it failed and saying so is the answer that
+    /// cannot be wrong.
+    /// </summary>
+    private async Task ReconcileInterruptedRunsAsync(CancellationToken ct)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var alerts = scope.ServiceProvider.GetRequiredService<AlertService>();
+
+        var interrupted = await db.PlanRuns
+            .Where(run => run.Status == PlanRunStatus.Running)
+            .ToListAsync(ct);
+
+        if (interrupted.Count == 0) return;
+
+        foreach (var run in interrupted)
+        {
+            run.Status = PlanRunStatus.Failed;
+            run.EndedUtc = DateTimeOffset.UtcNow;
+            run.Detail = "Interrupted — the server restarted while this plan was running.";
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogWarning(
+            "Marked {Count} plan run(s) as interrupted; they were still Running at startup",
+            interrupted.Count);
+
+        foreach (var run in interrupted)
+        {
+            await alerts.RaiseAsync(
+                AlertKind.PlanFailed,
+                AlertSeverity.Problem,
+                $"{run.PlanName} was interrupted",
+                "The server restarted part way through this plan. The zone that was running "
+                + "stopped on the controller's own timer, but the rest did not water.",
+                run.ControllerId, ct);
+        }
+    }
+
     private async Task TickAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
@@ -96,10 +152,17 @@ public sealed class PlanExecutionService : BackgroundService
 
         foreach (var record in await db.Controllers.ToListAsync(ct))
         {
-            if (_tracker.TryGet(record.Id, out var active))
-                await AdvanceAsync(db, controllers, record, active!, ct, alerts);
-            else
-                await MaybeStartAsync(db, controllers, record, ct, alerts);
+            // Skipped rather than queued when something else holds the controller —
+            // a cancellation, or a run started by hand. Another tick is along in a
+            // moment, and acting on a decision made before that operation finished is
+            // exactly how a cancelled plan used to open one more zone.
+            await _operations.TryExclusivelyAsync(record.Id, async token =>
+            {
+                if (_tracker.TryGet(record.Id, out var active))
+                    await AdvanceAsync(db, controllers, record, active!, token, alerts);
+                else
+                    await MaybeStartAsync(db, controllers, record, token, alerts);
+            }, ct);
         }
     }
 
@@ -146,6 +209,28 @@ public sealed class PlanExecutionService : BackgroundService
     /// Begins a plan run. Also used for "run now", which records a run against the
     /// current minute so the scheduled pass is not double-fired.
     /// </summary>
+    /// <summary>
+    /// Starts a plan on demand, taking the controller's operation lock.
+    ///
+    /// Separate from <see cref="StartAsync"/> because the scheduler tick calls that
+    /// one already holding the lock, and the lock is not reentrant. Anything reached
+    /// from an HTTP handler has to come through here, or two "run now" presses can
+    /// both persist a run and one tracker entry silently replaces the other.
+    /// </summary>
+    public Task<PlanRun?> StartNowAsync(
+        AppDbContext db,
+        ControllerService controllers,
+        ControllerRecord record,
+        WateringPlan plan,
+        DateOnly scheduledDate,
+        int scheduledStartMinute,
+        CancellationToken ct = default,
+        AlertService? alerts = null) =>
+        _operations.ExclusivelyAsync(
+            record.Id,
+            token => StartAsync(db, controllers, record, plan, scheduledDate, scheduledStartMinute, token, alerts),
+            ct);
+
     public async Task<PlanRun?> StartAsync(
         AppDbContext db,
         ControllerService controllers,
@@ -156,10 +241,20 @@ public sealed class PlanExecutionService : BackgroundService
         CancellationToken ct,
         AlertService? alerts = null)
     {
-        var steps = PlanCompiler.Compile(plan, plan.Zones);
+        // Read at the moment of running, not when the plan was written. A zone
+        // switched off since — or automatically disabled because its station stopped
+        // being reported — must not water just because a plan still lists it.
+        var runnable = await db.Zones
+            .Where(zone => zone.ControllerId == record.Id && zone.Enabled)
+            .Select(zone => zone.StationNumber)
+            .ToListAsync(ct);
+
+        var steps = PlanCompiler.Compile(plan, plan.Zones, runnable.ToHashSet());
         if (steps.Count == 0)
         {
-            _logger.LogInformation("Plan {Plan} has nothing to water; skipping", plan.Name);
+            _logger.LogInformation(
+                "Plan {Plan} has nothing to water — every zone is disabled or set to zero; skipping",
+                plan.Name);
             return null;
         }
 
@@ -271,7 +366,10 @@ public sealed class PlanExecutionService : BackgroundService
             // Bounded by the controller's own timer: if this server disappears, the
             // valve still closes. The engine advances the queue; it never holds a
             // valve open.
-            var minutes = Math.Clamp(next.Minutes, 1, MaxStepMinutes);
+            // No clamp here. PlanCompiler already bounds every step to what a run
+            // command can express, so this is the same number the queue was built
+            // from — which is what the countdown and the advance both key off.
+            var minutes = next.Minutes;
             await connection.Client.RunStationAsync(next.StationNumber!.Value, minutes, ct);
             _clock.Started(record.Id, next.StationNumber!.Value, minutes);
             connection.NoteCommandedRun(next.StationNumber, RunTrigger.Program, TimeSpan.FromMinutes(minutes + 2));
@@ -396,7 +494,15 @@ public sealed class PlanExecutionService : BackgroundService
     /// Called when the user stops watering, starts something by hand, or cancels the
     /// plan — anything that means the queue should no longer own the controller.
     /// </summary>
-    public async Task CancelAsync(int controllerId, string reason, CancellationToken ct = default)
+    public Task CancelAsync(int controllerId, string reason, CancellationToken ct = default) =>
+        _operations.ExclusivelyAsync(controllerId, token => CancelCoreAsync(controllerId, reason, token), ct);
+
+    /// <summary>
+    /// The body of a cancellation, which must only ever run while holding the
+    /// controller's operation lock — otherwise an advance already in flight lands
+    /// after the stop and opens a zone nothing is tracking.
+    /// </summary>
+    private async Task CancelCoreAsync(int controllerId, string reason, CancellationToken ct)
     {
         if (!_tracker.TryGet(controllerId, out var active) || active is null) return;
 

@@ -399,4 +399,59 @@ public class PlanCompilerTests
 
         Assert.True(PlanPresets.DefaultMinutes(rotor) > PlanPresets.DefaultMinutes(spray));
     }
+
+    // ------------------------------------------- what the hardware can be told
+
+    [Fact]
+    public void A_step_is_never_longer_than_a_run_command_can_express()
+    {
+        // 240 minutes is allowed by the editor, and 200% seasonal adjust doubles it.
+        // The command carries its duration in one byte, so 480 cannot be sent.
+        var steps = PlanCompiler.Compile(Plan(seasonalAdjust: 200), Zones((1, 240)));
+
+        Assert.Equal(PlanCompiler.MaxStepMinutes, Assert.Single(steps).Minutes);
+    }
+
+    [Fact]
+    public void The_step_length_is_what_will_actually_be_commanded()
+    {
+        // The engine used to clamp the command to 255 while still waiting out the
+        // unclamped 480 before advancing, so the yard sat idle for the difference.
+        // Whatever the queue says is now what gets sent.
+        var steps = PlanCompiler.Compile(Plan(seasonalAdjust: 200), Zones((1, 240), (2, 10)));
+
+        Assert.All(steps, step => Assert.InRange(step.Minutes, 1, PlanCompiler.MaxStepMinutes));
+    }
+
+    // ------------------------------------------------------- disabled zones
+
+    [Fact]
+    public void A_zone_that_is_no_longer_available_is_not_watered()
+    {
+        // Zone 2 has been switched off, or its station stopped being reported. The
+        // plan still lists it; it must not run.
+        var steps = PlanCompiler.Compile(
+            Plan(), Zones((1, 10), (2, 15), (3, 5)), availableStations: new HashSet<int> { 1, 3 });
+
+        Assert.Equal([1, 3], steps.Where(s => !s.IsSoak).Select(s => s.StationNumber));
+    }
+
+    [Fact]
+    public void A_plan_whose_zones_are_all_unavailable_runs_nothing()
+    {
+        var steps = PlanCompiler.Compile(
+            Plan(), Zones((1, 10), (2, 15)), availableStations: new HashSet<int>());
+
+        Assert.Empty(steps);
+    }
+
+    [Fact]
+    public void No_zone_list_means_no_opinion_about_availability()
+    {
+        // Callers with no zone table to consult — the DTO mapper — get the old
+        // behaviour rather than an empty plan.
+        var steps = PlanCompiler.Compile(Plan(), Zones((1, 10), (2, 15)));
+
+        Assert.Equal(2, steps.Count(s => !s.IsSoak));
+    }
 }

@@ -16,8 +16,16 @@ public sealed class LnkClient
 
     // ---------------------------------------------------------------- tunnel
 
-    /// <summary>Sends a raw SIP payload and decodes the reply.</summary>
-    public async Task<SipMessage> TunnelAsync(string commandHex, CancellationToken ct = default)
+    /// <summary>
+    /// Sends a raw SIP payload and decodes the reply.
+    /// </summary>
+    /// <param name="repeatable">
+    /// False for commands that must not be sent twice — anything that opens a valve.
+    /// A lost reply is ambiguous, and the retry ladder would turn that ambiguity into
+    /// a zone queued three times. Reads default to true because asking again is free.
+    /// </param>
+    public async Task<SipMessage> TunnelAsync(
+        string commandHex, CancellationToken ct = default, bool repeatable = true)
     {
         var parameters = new JsonObject
         {
@@ -25,7 +33,9 @@ public sealed class LnkClient
             ["data"] = commandHex,
         };
 
-        var result = await _transport.SendAsync("tunnelSip", parameters, ct).ConfigureAwait(false);
+        var result = repeatable
+            ? await _transport.SendAsync("tunnelSip", parameters, ct).ConfigureAwait(false)
+            : await _transport.SendWithoutRetryAsync("tunnelSip", parameters, ct).ConfigureAwait(false);
 
         var data = result["data"]?.GetValue<string>()
             ?? throw new RainBirdProtocolException("tunnelSip response contained no data field.");
@@ -259,6 +269,12 @@ public sealed class LnkClient
     // ----------------------------------------------------------- manual runs
 
     /// <summary>
+    /// The longest run any single command can express. The duration is one byte on
+    /// the wire, so this is the format's limit rather than a policy choice.
+    /// </summary>
+    public const int MaxRunMinutes = 255;
+
+    /// <summary>
     /// Runs one station for a number of minutes (SIP <c>39</c>).
     ///
     /// The station is a <b>16-bit</b> value and the duration 8-bit, giving a 4-byte
@@ -271,27 +287,37 @@ public sealed class LnkClient
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(station, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(minutes, 1);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(minutes, 255);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(minutes, MaxRunMinutes);
 
         return TunnelAsync(
-            SipCodec.EncodeRaw(SipCommand.ManuallyRunStation, $"{station:X4}{minutes:X2}"), ct);
+            SipCodec.EncodeRaw(SipCommand.ManuallyRunStation, $"{station:X4}{minutes:X2}"),
+            ct, repeatable: false);
     }
 
     /// <summary>Queues a station run behind whatever is already going (SIP <c>4B</c>).</summary>
     public Task StackStationAsync(int station, int minutes, CancellationToken ct = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(station, 1);
-        var hex = $"{(station >> 8) & 0xFF:X2}{station & 0xFF:X2}{minutes & 0xFF:X2}";
-        return TunnelAsync(SipCodec.EncodeRaw(SipCommand.StackManuallyRunStation, hex), ct);
+
+        // Checked rather than masked. The duration is one byte on the wire, and
+        // `minutes & 0xFF` turned -1 into 255 — a request for negative watering
+        // opening a valve for four and a quarter hours.
+        ArgumentOutOfRangeException.ThrowIfLessThan(minutes, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(minutes, MaxRunMinutes);
+
+        var hex = $"{(station >> 8) & 0xFF:X2}{station & 0xFF:X2}{minutes:X2}";
+        // The one that stacks rather than replaces, so a repeat is strictly additive:
+        // three attempts would water this zone three times over.
+        return TunnelAsync(SipCodec.EncodeRaw(SipCommand.StackManuallyRunStation, hex), ct, repeatable: false);
     }
 
     /// <summary>Runs a whole program now (SIP <c>38</c>).</summary>
     public Task RunProgramAsync(int program, CancellationToken ct = default) =>
-        SendAsync(SipCommand.ManuallyRunProgram, ct, (byte)program);
+        TunnelAsync(SipCodec.Encode(SipCommand.ManuallyRunProgram, (byte)program), ct, repeatable: false);
 
     /// <summary>Runs every station in sequence for N minutes each (SIP <c>3A</c>).</summary>
     public Task TestAllStationsAsync(int minutes, CancellationToken ct = default) =>
-        SendAsync(SipCommand.TestStations, ct, (byte)minutes);
+        TunnelAsync(SipCodec.Encode(SipCommand.TestStations, (byte)minutes), ct, repeatable: false);
 
     public Task StopIrrigationAsync(CancellationToken ct = default) =>
         SendAsync(SipCommand.StopIrrigation, ct);

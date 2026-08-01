@@ -5,7 +5,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using RainBird.Protocol;
 using Microsoft.EntityFrameworkCore;
+using System.Threading.RateLimiting;
 using Lib.Net.Http.WebPush;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using RainBird.Server.Api;
@@ -118,6 +120,29 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
+// Sign-in attempts are limited per client address. Without this the only thing
+// standing between someone on the network and the sprinklers is however fast they
+// can guess, and each guess also costs a PBKDF2 hash — so unlimited attempts are a
+// way to burn the server's CPU as well as a way in.
+//
+// Generous enough that a person fumbling their password never notices, and the reply
+// stays the uniform 401 either way so the limiter cannot be used to probe which
+// usernames exist.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+    options.AddPolicy(AuthEndpoints.SignInRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
+
 // -------------------------------------------------------------------- services
 
 // A controller is a small device on the local network: it answers in well under a
@@ -142,6 +167,7 @@ builder.Services.AddHttpClient("weather", client =>
 builder.Services.AddSingleton<ControllerRegistry>();
 builder.Services.AddSingleton<HistoryRecorder>();
 builder.Services.AddSingleton<RunClock>();
+builder.Services.AddSingleton<ControllerOperations>();
 builder.Services.AddSingleton<SkipEvaluator>();
 builder.Services.AddScoped<ControllerService>();
 builder.Services.AddScoped<SettingsService>();
@@ -217,6 +243,7 @@ app.UseStaticFiles(new StaticFileOptions
     OnPrepareResponse = ApplySpaCaching,
 });
 
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -15,6 +15,22 @@ namespace RainBird.Protocol;
 public interface IRainBirdTransport
 {
     Task<JsonObject> SendAsync(string method, JsonObject parameters, CancellationToken ct = default);
+
+    /// <summary>
+    /// Sends a request whose effect must not be repeated if the answer goes missing.
+    ///
+    /// A read can be retried freely: asking twice costs a round trip. A command that
+    /// opens a valve cannot, because a timeout does not say whether the controller
+    /// acted. Retrying a queue command that was in fact received stacks the zone a
+    /// second time, and the retry budget is three — so a lost reply could water a
+    /// zone three times over.
+    /// </summary>
+    /// <remarks>
+    /// A default implementation, so transports with no retry ladder of their own —
+    /// the simulator, test fakes — need no change.
+    /// </remarks>
+    Task<JsonObject> SendWithoutRetryAsync(string method, JsonObject parameters, CancellationToken ct = default)
+        => SendAsync(method, parameters, ct);
 }
 
 /// <summary>Raw SIP exchange, surfaced for the diagnostics panel.</summary>
@@ -92,7 +108,16 @@ public sealed class HttpRainBirdTransport : IRainBirdTransport, ISipExchangeSour
     /// <summary>True while the controller is being treated as unreachable.</summary>
     public bool IsCircuitOpen => DateTimeOffset.UtcNow < _unreachableUntil;
 
-    public async Task<JsonObject> SendAsync(string method, JsonObject parameters, CancellationToken ct = default)
+    public Task<JsonObject> SendAsync(string method, JsonObject parameters, CancellationToken ct = default) =>
+        SendCoreAsync(method, parameters, retry: true, ct);
+
+    /// <inheritdoc />
+    public Task<JsonObject> SendWithoutRetryAsync(
+        string method, JsonObject parameters, CancellationToken ct = default) =>
+        SendCoreAsync(method, parameters, retry: false, ct);
+
+    private async Task<JsonObject> SendCoreAsync(
+        string method, JsonObject parameters, bool retry, CancellationToken ct)
     {
         // Fail fast rather than queueing behind another caller's retry ladder.
         if (IsCircuitOpen)
@@ -109,7 +134,9 @@ public sealed class HttpRainBirdTransport : IRainBirdTransport, ISipExchangeSour
                     _unreachableReason ?? $"The controller at {_endpoint.Host} is not responding.");
 
             await ThrottleAsync(ct).ConfigureAwait(false);
-            var result = await SendWithRetriesAsync(method, parameters, ct).ConfigureAwait(false);
+            var result = retry
+                ? await SendWithRetriesAsync(method, parameters, ct).ConfigureAwait(false)
+                : await SendExactlyOnceAsync(method, parameters, ct).ConfigureAwait(false);
 
             _unreachableUntil = DateTimeOffset.MinValue;
             _unreachableReason = null;
@@ -134,6 +161,34 @@ public sealed class HttpRainBirdTransport : IRainBirdTransport, ISipExchangeSour
         var wait = TimeSpan.FromMilliseconds(DelayBetweenPostsMs) - sinceLast;
         if (wait > TimeSpan.Zero)
             await Task.Delay(wait, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Exactly one attempt, for commands whose effect must not be repeated.
+    ///
+    /// A timeout here does not mean the controller did nothing — it means we do not
+    /// know. Reporting that is the honest outcome; retrying would turn "maybe
+    /// watered" into "watered twice".
+    /// </summary>
+    private async Task<JsonObject> SendExactlyOnceAsync(
+        string method, JsonObject parameters, CancellationToken ct)
+    {
+        try
+        {
+            return await SendOnceAsync(method, parameters, ct).ConfigureAwait(false);
+        }
+        catch (HttpRequestException ex)
+            when (ex.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.Unauthorized)
+        {
+            throw new RainBirdAuthenticationException("The controller rejected the password.", ex);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException
+                                   && !ct.IsCancellationRequested)
+        {
+            throw new RainBirdConnectionException(
+                $"The controller at {_endpoint.Host} did not answer. The command may or may not "
+                + "have been carried out; check the controller before sending it again.", ex);
+        }
     }
 
     private async Task<JsonObject> SendWithRetriesAsync(string method, JsonObject parameters, CancellationToken ct)

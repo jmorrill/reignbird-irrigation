@@ -33,10 +33,29 @@ public static class PlanCompiler
     /// other zones do not take long enough on their own, which in practice means a
     /// plan with very few zones.
     /// </summary>
-    public static IReadOnlyList<PlanStep> Compile(WateringPlan plan, IReadOnlyList<PlanZone> zones)
+    /// <summary>
+    /// The longest a single step may be, because a run command carries its duration
+    /// in one byte. Enforced here rather than at the point of sending: the engine
+    /// used to clamp the command to 255 while still waiting out the unclamped
+    /// duration before moving on, so a 480-minute step watered for 255 minutes and
+    /// then left the yard idle for the remaining 225 before the next zone started.
+    /// Clamping once, here, keeps what is persisted, displayed, commanded and waited
+    /// for all describing the same thing.
+    /// </summary>
+    public const int MaxStepMinutes = 255;
+
+    public static IReadOnlyList<PlanStep> Compile(
+        WateringPlan plan,
+        IReadOnlyList<PlanZone> zones,
+        IReadOnlySet<int>? availableStations = null)
     {
         var active = zones
             .Where(zone => zone.Minutes > 0)
+            // A zone switched off — by hand, or automatically because its station
+            // stopped being reported — must not be watered by a plan that still lists
+            // it. The plan keeps the row so the duration survives re-enabling; it just
+            // does not run. Null means "no opinion", for callers with no zone table.
+            .Where(zone => availableStations is null || availableStations.Contains(zone.StationNumber))
             .OrderBy(zone => zone.SortOrder)
             .ThenBy(zone => zone.StationNumber)
             .ToList();
@@ -44,7 +63,11 @@ public static class PlanCompiler
         if (active.Count == 0) return [];
 
         var adjusted = active
-            .Select(zone => (zone.StationNumber, Minutes: ApplySeasonalAdjust(zone.Minutes, plan.SeasonalAdjustPercent)))
+            .Select(zone => (
+                zone.StationNumber,
+                Minutes: Math.Min(
+                    ApplySeasonalAdjust(zone.Minutes, plan.SeasonalAdjustPercent),
+                    MaxStepMinutes)))
             .Where(entry => entry.Minutes > 0)
             .ToList();
 

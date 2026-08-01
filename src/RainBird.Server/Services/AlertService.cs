@@ -275,6 +275,26 @@ public sealed class AlertService
         await _db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Removes every device belonging to an account.
+    ///
+    /// Called when an account is deleted. Without it a removed user's phone carries on
+    /// receiving plan, outage and garden notifications indefinitely — the record even
+    /// stored which account a subscription belonged to, and then never used it.
+    /// </summary>
+    public async Task RemoveSubscriptionsForUserAsync(int userId, CancellationToken ct = default)
+    {
+        var owned = await _db.PushSubscriptions.Where(s => s.UserId == userId).ToListAsync(ct);
+        if (owned.Count == 0) return;
+
+        _db.PushSubscriptions.RemoveRange(owned);
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Removed {Count} push subscription(s) belonging to deleted account {UserId}",
+            owned.Count, userId);
+    }
+
     public Task<int> SubscriptionCountAsync(CancellationToken ct = default) =>
         _db.PushSubscriptions.CountAsync(ct);
 

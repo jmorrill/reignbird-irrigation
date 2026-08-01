@@ -95,6 +95,28 @@ public sealed class AuthService
     /// <summary>A hash of nothing anyone knows, used to keep failed logins costing the same.</summary>
     private static readonly string DummyHash = Hasher.HashPassword(new UserRecord(), Guid.NewGuid().ToString());
 
+    /// <summary>
+    /// Creates the first account, and only if there is genuinely none.
+    ///
+    /// The check and the insert run in one transaction because they were previously
+    /// two statements with a gap between them: two setup requests arriving together
+    /// with different usernames could both see an empty table and both succeed,
+    /// leaving a stranger with an equal account. Returns null when somebody got there
+    /// first.
+    /// </summary>
+    public async Task<UserRecord?> CreateFirstAsync(
+        string username, string password, CancellationToken ct = default)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+
+        if (await _db.Users.AnyAsync(ct)) return null;
+
+        var user = await CreateAsync(username, password, ct);
+        await transaction.CommitAsync(ct);
+
+        return user;
+    }
+
     public async Task<UserRecord> CreateAsync(string username, string password, CancellationToken ct = default)
     {
         var user = new UserRecord { Username = username.Trim() };
