@@ -65,6 +65,52 @@ public sealed class ControllerConnection : IDisposable
     public DateTimeOffset? LastSeenUtc { get; set; }
     public string? LastError { get; set; }
 
+    /// <summary>
+    /// The controller's own programs, as last read, and when.
+    ///
+    /// Reading them costs a SIP exchange per program and nothing about them changes
+    /// unless somebody writes one â€” either through this app, which clears this, or at
+    /// the panel on the wall, which is what the short lifetime covers. Uncached, this
+    /// was the slowest request the app made and every screen load paid for it.
+    /// </summary>
+    public IReadOnlyList<ProgramSchedule>? LastPrograms { get; set; }
+    public DateTimeOffset? ProgramsReadUtc { get; set; }
+
+    /// <summary>Drops the cached programs, so the next read goes to the controller.</summary>
+    public void InvalidatePrograms()
+    {
+        LastPrograms = null;
+        ProgramsReadUtc = null;
+    }
+
+    /// <summary>
+    /// The cached programs, if they were read recently enough to still be trusted.
+    ///
+    /// False means the caller has to go to the controller. Kept here rather than in
+    /// the endpoint so the one thing worth getting wrong â€” serving a program the user
+    /// has just edited â€” can be tested directly.
+    /// </summary>
+    public bool TryGetFreshPrograms(TimeSpan freshness, out IReadOnlyList<ProgramSchedule> programs)
+    {
+        if (LastPrograms is { } cached
+            && ProgramsReadUtc is { } readAt
+            && DateTimeOffset.UtcNow - readAt < freshness)
+        {
+            programs = cached;
+            return true;
+        }
+
+        programs = [];
+        return false;
+    }
+
+    /// <summary>Records a fresh read from the controller.</summary>
+    public void RememberPrograms(IReadOnlyList<ProgramSchedule> programs)
+    {
+        LastPrograms = programs;
+        ProgramsReadUtc = DateTimeOffset.UtcNow;
+    }
+
     // --------------------------------------------------------- run attribution
 
     /// <summary>
@@ -130,7 +176,7 @@ public sealed class ControllerConnection : IDisposable
 
     /// <summary>
     /// Releases the transport. Only safe once nothing can still be using this
-    /// connection — see <see cref="ControllerRegistry"/> for why replacement does not
+    /// connection ï¿½ see <see cref="ControllerRegistry"/> for why replacement does not
     /// call this.
     /// </summary>
     public void Dispose() => (_transport as IDisposable)?.Dispose();
@@ -169,8 +215,8 @@ public sealed class ControllerRegistry : IDisposable
 
                 // The controller moved, or switched scheme; rebuild against it.
                 //
-                // The old connection is deliberately *not* disposed. Another caller —
-                // the polling loop, most likely — may be mid-request on it, and
+                // The old connection is deliberately *not* disposed. Another caller ï¿½
+                // the polling loop, most likely ï¿½ may be mid-request on it, and
                 // disposing the transport pulls its serialisation gate out from under
                 // that request. Everything the transport holds is either shared and
                 // factory-owned (the HttpClient) or cheap and collectable, so letting

@@ -177,11 +177,20 @@ const DelayHero = observer(function DelayHero({ days }: { days: number }) {
 const IdleHero = observer(function IdleHero() {
   const { controllers, schedules, zones, plans } = useStore();
 
-  // Both have to have answered. Either one still in flight and the honest reply is
-  // "not sure yet" — announcing "No watering scheduled" and correcting it a beat
-  // later is not a slower answer, it is a wrong one.
-  const known = plans.loaded && schedules.loaded;
-  const next = known ? nextRunDescription(plans.enabled, schedules.programs) : null;
+  // Plans answer this by themselves whenever there is one, and they arrive in a
+  // single database read. The controller's own programs cost a SIP exchange per
+  // program and are reliably the slowest request on the screen, so waiting for
+  // them is only worth it when the plans have nothing to say — which is the only
+  // case the program fallback is ever used in. Waiting for both meant the hero sat
+  // on a skeleton until the slowest request in the app returned, to display an
+  // answer that had been settled since the fastest one did.
+  const fromPlans = plans.loaded ? nextRunFromPlans(plans.enabled) : null;
+  const known = plans.loaded && (fromPlans !== null || schedules.loaded);
+
+  // Still "not sure yet" until one of them has answered: announcing "No watering
+  // scheduled" and correcting it a beat later is not a slower answer, it is a
+  // wrong one.
+  const next = !known ? null : fromPlans ?? nextRunFromPrograms(schedules.programs);
 
   return (
     <div className="hero hero--idle">
@@ -302,7 +311,13 @@ import { describeFrequency, formatStartTime } from '../stores/ScheduleStore';
  * Falls through to the controller's own programs when there are no plans, which is
  * still the right answer for hardware old enough to schedule for itself.
  */
-function nextRunDescription(plans: Plan[], programs: Program[]): { headline: string; detail: string } {
+type NextRun = { headline: string; detail: string };
+
+/**
+ * Returns null only when there are no plans at all — the one case where the
+ * controller's own programs are worth waiting for.
+ */
+function nextRunFromPlans(plans: Plan[]): NextRun | null {
   const scheduled = plans
     .filter((plan) => plan.nextRunUtc !== null)
     .sort((a, b) => Date.parse(a.nextRunUtc!) - Date.parse(b.nextRunUtc!));
@@ -326,6 +341,10 @@ function nextRunDescription(plans: Plan[], programs: Program[]): { headline: str
     };
   }
 
+  return null;
+}
+
+function nextRunFromPrograms(programs: Program[]): NextRun {
   const active = programs.filter((program) => program.enabled);
 
   if (active.length === 0) {

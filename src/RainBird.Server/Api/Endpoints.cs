@@ -30,6 +30,13 @@ public static class Endpoints
     /// </summary>
     private static readonly TimeSpan StateFreshness = TimeSpan.FromSeconds(8);
 
+    /// <summary>
+    /// How long a program read stays good for. Longer than the state cache because
+    /// programs only change when somebody edits one, and every edit made through this
+    /// app clears the cache outright.
+    /// </summary>
+    private static readonly TimeSpan ProgramFreshness = TimeSpan.FromMinutes(5);
+
     // -------------------------------------------------------------- helpers
 
     /// <summary>
@@ -640,6 +647,16 @@ public static class Endpoints
             var (record, error) = await LoadAsync(db, id, ct);
             if (error is not null) return error;
 
+            var connection = controllers.Connect(record!);
+
+            // Serve what was last read, if it is recent. This is a SIP exchange per
+            // program on a device that answers one request at a time, which made it
+            // the slowest thing the app asked for and something every screen load
+            // waited on. Writing a program clears this, so the only staleness left is
+            // somebody editing at the panel on the wall.
+            if (connection.TryGetFreshPrograms(ProgramFreshness, out var cachedPrograms))
+                return Results.Ok(cachedPrograms.Select(ProgramDto.From).ToList());
+
             return await DeviceAsync(async () =>
             {
                 var schedule = await ScheduleForAsync(controllers, record!, ct);
@@ -647,6 +664,8 @@ public static class Endpoints
                     return Results.Ok(Array.Empty<ProgramDto>());
 
                 var programs = await schedule.GetAllProgramsAsync(ct);
+                connection.RememberPrograms(programs);
+
                 return Results.Ok(programs.Select(ProgramDto.From).ToList());
             });
         });
@@ -691,6 +710,9 @@ public static class Endpoints
                     StartTimes = request.StartTimes,
                     StationRunTimes = request.StationRunTimes,
                 }, ct);
+
+                // The cached copy now describes the program as it was before this edit.
+                controllers.Connect(record!).InvalidatePrograms();
 
                 return Results.Ok(ProgramDto.From(await schedule.GetProgramAsync(program, ct)));
             });
