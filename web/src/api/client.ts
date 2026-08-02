@@ -1,3 +1,4 @@
+import { uploadNameFor } from './photos';
 import type {
   Account,
   Alert,
@@ -157,25 +158,6 @@ const post = <T>(path: string, body?: unknown) =>
 const put = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'PUT', body: JSON.stringify(body) });
 const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
-
-/** The picture formats the server stores, and the extension it expects for each. */
-export const PHOTO_EXTENSIONS: Readonly<Record<string, string>> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-};
-
-/**
- * A filename the server will accept for an uploaded photo.
- *
- * Falls back to whatever the picker supplied when the type is unrecognised, so the
- * server gets to give its own answer about what it does and does not take rather
- * than this quietly inventing an extension for it.
- */
-function uploadNameFor(file: File): string {
-  const extension = PHOTO_EXTENSIONS[file.type];
-  return extension ? `photo${extension}` : file.name;
-}
 
 export const api = {
   /** Postcode or place-name lookup, for people who do not know their latitude. */

@@ -1,5 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx';
-import { ApiError, PHOTO_EXTENSIONS, api } from '../api/client';
+import { ApiError, api } from '../api/client';
+import { PHOTO_EXTENSIONS, shrinkForUpload } from '../api/photos';
 import type { Zone } from '../api/types';
 import type { RootStore } from './RootStore';
 
@@ -160,7 +161,12 @@ export class ZoneStore {
     });
 
     try {
-      const { photoUrl } = await api.zones.uploadPhoto(controllerId, station, file);
+      // Scaled down after the preview is on screen, not before: the preview comes
+      // from the original because it is already on the device and costs nothing,
+      // and decoding a twelve-megapixel photo is the one part of this that could
+      // hold up the very feedback it is meant to give.
+      const { photoUrl } = await api.zones.uploadPhoto(
+        controllerId, station, await shrinkForUpload(file));
       runInAction(() => {
         const index = this.zones.findIndex((zone) => zone.stationNumber === station);
         // Replacing a photo of the same format writes the same filename, so the URL
