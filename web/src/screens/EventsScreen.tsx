@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { observer } from 'mobx-react-lite';
+import { useEffect, useState } from 'react';
 import type { RunTrigger, WeatherDay } from '../api/types';
 import { AlertIcon, DropIcon, WeatherIcon, WindIcon } from '../components/Icons';
 import { StatusHero } from '../components/NowWatering';
@@ -119,6 +120,7 @@ const WeatherCell = observer(function WeatherCell({ day, isToday }: { day: Weath
  */
 const RunTimeline = observer(function RunTimeline() {
   const { history } = useStore();
+  const now = useNow(60_000);
 
   return (
     <section>
@@ -160,10 +162,15 @@ const RunTimeline = observer(function RunTimeline() {
                         <RunTriggerPill trigger={run.trigger} />
                       </span>
                       <span className="run-row__time data">
-                        {new Date(run.startedUtc).toLocaleTimeString(undefined, {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}
+                        <span className="run-row__clock">
+                          {new Date(run.startedUtc).toLocaleTimeString(undefined, {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                        <span className="run-row__ago">
+                          {describeTimeAgo(run.startedUtc, now)}
+                        </span>
                       </span>
                       <span className="run-row__duration data">
                         {formatRunDuration(run.durationSeconds)}
@@ -208,6 +215,50 @@ function RunTriggerPill({ trigger }: { trigger: RunTrigger }) {
 function formatRunDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.round(seconds / 60)} min`;
+}
+
+/**
+ * How long ago a run started — the backward-looking sibling of describeNextRun.
+ *
+ * Compact because it sits in a dense list column rather than in a sentence, and
+ * because below 560px it is the only per-run time there is: the clock time is
+ * hidden at that width, which left a phone showing nothing finer than the day.
+ *
+ * Rounds down throughout. Rounding to nearest would call 90 minutes "2h ago",
+ * and a run reported as older than it is undermines the one question this
+ * answers.
+ */
+function describeTimeAgo(iso: string, now: number): string {
+  const seconds = Math.floor((now - new Date(iso).getTime()) / 1000);
+
+  // Negative means the device clock and this one disagree, not time travel.
+  if (seconds < 60) return 'just now';
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+/**
+ * A clock that re-renders on an interval, so relative times age instead of
+ * freezing at whatever they read when the screen was opened.
+ *
+ * A minute is as fine as anything here is displayed, so there is nothing to gain
+ * from ticking faster.
+ */
+function useNow(intervalMs: number): number {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+
+  return now;
 }
 
 /* ------------------------------------------------------------------ usage */
