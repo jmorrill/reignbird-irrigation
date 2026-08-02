@@ -160,7 +160,7 @@ const ZoneSheet = observer(function ZoneSheet() {
               "No photo yet" is only true when there is neither — while one is on its
               way it would be a wrong answer, not just an early one. */}
           {shown ? (
-            <img src={shown} alt="" className="zone-photo__img" />
+            <img src={shown} alt="" className="zone-photo__img" decoding="async" />
           ) : zone.photoUrl ? (
             <div className="zone-photo__empty">
               <Spinner size={22} />

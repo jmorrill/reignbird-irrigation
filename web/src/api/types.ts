@@ -76,6 +76,12 @@ export interface Zone {
   stationNumber: number;
   name: string;
   photoUrl: string | null;
+
+  /**
+   * A small rendition for the zone list, which draws photos at 52px. Falls back to
+   * the full photo server-side for zones photographed before thumbnails existed.
+   */
+  thumbUrl: string | null;
   plantType: PlantType;
   soilType: SoilType;
   sunExposure: SunExposure;

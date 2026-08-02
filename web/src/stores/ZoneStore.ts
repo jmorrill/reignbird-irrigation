@@ -1,6 +1,6 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { ApiError, api } from '../api/client';
-import { PHOTO_EXTENSIONS, shrinkForUpload } from '../api/photos';
+import { PHOTO_EXTENSIONS, prepareForUpload } from '../api/photos';
 import type { Zone } from '../api/types';
 import type { RootStore } from './RootStore';
 
@@ -165,15 +165,24 @@ export class ZoneStore {
       // from the original because it is already on the device and costs nothing,
       // and decoding a twelve-megapixel photo is the one part of this that could
       // hold up the very feedback it is meant to give.
-      const { photoUrl } = await api.zones.uploadPhoto(
-        controllerId, station, await shrinkForUpload(file));
+      const prepared = await prepareForUpload(file);
+
+      const { photoUrl, thumbUrl } = await api.zones.uploadPhoto(
+        controllerId, station, prepared.photo, prepared.thumb);
+
       runInAction(() => {
         const index = this.zones.findIndex((zone) => zone.stationNumber === station);
         // Replacing a photo of the same format writes the same filename, so the URL
         // comes back identical and nothing downstream can tell the picture changed:
         // the old one stays on screen and the replacement looks like it failed. The
         // stamp is what makes it a different URL to everything that watches one.
-        if (index >= 0) this.zones[index] = { ...this.zones[index], photoUrl: stamped(photoUrl) };
+        if (index >= 0) {
+          this.zones[index] = {
+            ...this.zones[index],
+            photoUrl: stamped(photoUrl),
+            thumbUrl: stamped(thumbUrl),
+          };
+        }
       });
       this.root.ui.notify('good', 'Photo saved');
     } catch (error) {

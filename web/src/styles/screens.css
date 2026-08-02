@@ -470,6 +470,9 @@
   width: 52px;
   height: 52px;
   border-radius: var(--r-md);
+  /* object-fit for the <img>; the background pair still covers the empty state. */
+  object-fit: cover;
+  object-position: center;
   background-size: cover;
   background-position: center;
   background-color: var(--bg-sunk);

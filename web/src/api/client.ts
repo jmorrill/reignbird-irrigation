@@ -238,8 +238,10 @@ export const api = {
     queue: (id: number, station: number, minutes: number) =>
       post<void>(`/api/controllers/${id}/zones/${station}/queue`, { minutes }),
 
-    uploadPhoto: async (id: number, station: number, file: File) => {
+    uploadPhoto: async (id: number, station: number, file: File, thumb?: File | null) => {
       const form = new FormData();
+      // Sent together so the pair cannot end up out of step with each other.
+      if (thumb) form.append('thumb', thumb, uploadNameFor(thumb));
       // Named from the type the browser reported rather than whatever the picker
       // called it. The server validates by extension, and a capture straight from
       // an Android camera frequently arrives as "image" with no extension at all —
@@ -265,7 +267,7 @@ export const api = {
 
         throw new ApiError(message ?? 'Could not save the photo.', response.status);
       }
-      return (await response.json()) as { photoUrl: string };
+      return (await response.json()) as { photoUrl: string; thumbUrl: string };
     },
   },
 

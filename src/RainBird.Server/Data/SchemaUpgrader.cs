@@ -21,6 +21,7 @@ public static class SchemaUpgrader
         if (!await db.Database.CanConnectAsync(ct)) return;
 
         await AddColumnIfMissingAsync(db, logger, "Controllers", "UseHttps", "INTEGER NOT NULL DEFAULT 0", ct);
+        await AddColumnIfMissingAsync(db, logger, "Zones", "ThumbPath", "TEXT NULL", ct);
         await AddAutoDisabledAsync(db, logger, ct);
         await AddPlanTablesAsync(db, logger, ct);
         await AddUsersTableAsync(db, logger, ct);

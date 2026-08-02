@@ -105,7 +105,9 @@ const ZoneRow = observer(function ZoneRow({
   onOpen: () => void;
 }) {
   const { zones, controllers } = useStore();
-  const photo = useMediaUrl(zone.photoUrl);
+  // The thumbnail, not the photo: this is a 52px square, and the full-size version
+  // is several megapixels the phone would decode and then throw away.
+  const photo = useMediaUrl(zone.thumbUrl ?? zone.photoUrl);
 
   return (
     <motion.li
@@ -126,7 +128,10 @@ const ZoneRow = observer(function ZoneRow({
         whileTap={{ scale: 0.995 }}
       >
         {photo ? (
-          <span className="zrow__photo" style={{ backgroundImage: `url(${photo})` }} />
+          // An <img> rather than a background image, so decoding can be handed off
+          // the main thread. As a background it was decoded during paint, which put
+          // one decode per zone directly in the way of the list animating in.
+          <img src={photo} alt="" className="zrow__photo" decoding="async" loading="lazy" />
         ) : (
           <span className="zrow__photo zrow__photo--empty">
             <CameraIcon size={18} />

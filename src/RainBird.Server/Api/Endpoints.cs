@@ -381,8 +381,10 @@ public static class Endpoints
             return Results.Ok(ZoneDto.From(zone, lastRun, registry.Find(id)?.LastState));
         });
 
+        // The thumbnail is optional: it is produced by the browser, and a client that
+        // cannot make one still gets to save the photo.
         group.MapPost("/{station:int}/photo", async (
-            int id, int station, IFormFile file,
+            int id, int station, IFormFile file, IFormFile? thumb,
             AppDbContext db, StoragePaths storage, CancellationToken ct) =>
         {
             var zone = await db.Zones.FirstOrDefaultAsync(
@@ -407,9 +409,26 @@ public static class Endpoints
                 await file.CopyToAsync(stream, ct);
 
             zone.PhotoPath = fileName;
+
+            if (thumb is { Length: > 0 })
+            {
+                var thumbExtension = Path.GetExtension(thumb.FileName).ToLowerInvariant();
+                if (thumbExtension is ".jpg" or ".jpeg" or ".png" or ".webp")
+                {
+                    var thumbName = $"zone-{id}-{station}-thumb{thumbExtension}";
+                    await using var thumbStream = File.Create(Path.Combine(storage.Media, thumbName));
+                    await thumb.CopyToAsync(thumbStream, ct);
+                    zone.ThumbPath = thumbName;
+                }
+            }
+
             await db.SaveChangesAsync(ct);
 
-            return Results.Ok(new { photoUrl = $"/media/{fileName}" });
+            return Results.Ok(new
+            {
+                photoUrl = $"/media/{fileName}",
+                thumbUrl = zone.ThumbPath is null ? $"/media/{fileName}" : $"/media/{zone.ThumbPath}",
+            });
         }).DisableAntiforgery();
     }
 

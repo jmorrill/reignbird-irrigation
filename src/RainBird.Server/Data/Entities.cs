@@ -70,6 +70,16 @@ public class ZoneRecord
     [MaxLength(300)]
     public string? PhotoPath { get; set; }
 
+    /// <summary>
+    /// A small rendition of the same photo, for the zone list.
+    ///
+    /// The list draws each photo at 52 pixels. Handing it the full one meant a phone
+    /// decoding several megapixels per zone to fill a square smaller than a
+    /// fingernail, which is what made the list jerk as it appeared.
+    /// </summary>
+    [MaxLength(300)]
+    public string? ThumbPath { get; set; }
+
     public PlantType PlantType { get; set; } = PlantType.CoolSeasonGrass;
     public SoilType SoilType { get; set; } = SoilType.Loam;
     public SunExposure SunExposure { get; set; } = SunExposure.FullSun;

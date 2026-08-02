@@ -146,6 +146,7 @@ public sealed record ZoneDto(
     int StationNumber,
     string Name,
     string? PhotoUrl,
+    string? ThumbUrl,
     PlantType PlantType,
     SoilType SoilType,
     SunExposure SunExposure,
@@ -167,6 +168,11 @@ public sealed record ZoneDto(
         zone.StationNumber,
         zone.Name,
         zone.PhotoPath is null ? null : $"/media/{zone.PhotoPath}",
+        // Falls back to the full photo, so zones photographed before thumbnails
+        // existed still show a picture rather than an empty square.
+        zone.ThumbPath is null
+            ? (zone.PhotoPath is null ? null : $"/media/{zone.PhotoPath}")
+            : $"/media/{zone.ThumbPath}",
         zone.PlantType,
         zone.SoilType,
         zone.SunExposure,
