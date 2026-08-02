@@ -15,6 +15,7 @@ import {
   Field,
   Select,
   Sheet,
+  Spinner,
   Stepper,
   Toggle,
 } from './ui';
@@ -128,6 +129,8 @@ const ZoneSheet = observer(function ZoneSheet() {
 
   if (!zone) return <Sheet open={false} onClose={() => ui.closeZoneSheet()} title="Zone">{null}</Sheet>;
 
+  const uploading = zones.isUploadingPhoto(zone.stationNumber);
+
   return (
     <Sheet
       open={station !== null}
@@ -158,8 +161,24 @@ const ZoneSheet = observer(function ZoneSheet() {
               <span>No photo yet</span>
             </div>
           )}
-          <button className="zone-photo__btn" onClick={() => fileInput.current?.click()}>
-            {zone.photoUrl ? 'Replace photo' : 'Add photo'}
+
+          {/* A phone photo takes long enough that with no sign of progress the
+              upload read as a button that did nothing, and people pressed it
+              again. Covering the area is also what makes a second press
+              impossible while the first is still going. */}
+          {uploading && (
+            <div className="zone-photo__busy" role="status">
+              <Spinner size={22} />
+              <span>Uploading photo…</span>
+            </div>
+          )}
+
+          <button
+            className="zone-photo__btn"
+            disabled={uploading}
+            onClick={() => fileInput.current?.click()}
+          >
+            {uploading ? 'Uploading…' : zone.photoUrl ? 'Replace photo' : 'Add photo'}
           </button>
           <input
             ref={fileInput}

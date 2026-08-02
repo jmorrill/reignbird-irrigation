@@ -14,6 +14,12 @@ export class ZoneStore {
    */
   loaded = false;
 
+  /**
+   * Stations with a photo upload in flight. Replaced rather than mutated on each
+   * change, so reactivity does not depend on how the set itself is observed.
+   */
+  uploading: ReadonlySet<number> = new Set();
+
   private readonly root: RootStore;
 
   constructor(root: RootStore) {
@@ -109,9 +115,24 @@ export class ZoneStore {
     }
   }
 
+  /**
+   * Uploads a zone photo.
+   *
+   * Keyed by station rather than a single flag, because the sheet can be closed and
+   * another zone opened while the first is still going up — a lone flag would show
+   * the second zone as busy and leave the first looking idle.
+   *
+   * A photo off a phone camera is several megabytes, so this is the slowest thing
+   * anybody does in the app, and until now it reported nothing at all until the
+   * toast arrived. It read as a button that did nothing.
+   */
   async uploadPhoto(station: number, file: File) {
     const controllerId = this.root.controllers.selectedId;
     if (controllerId === null) return;
+
+    runInAction(() => {
+      this.uploading = new Set(this.uploading).add(station);
+    });
 
     try {
       const { photoUrl } = await api.zones.uploadPhoto(controllerId, station, file);
@@ -123,6 +144,16 @@ export class ZoneStore {
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not save the photo.';
       this.root.ui.notify('bad', 'Photo not saved', message);
+    } finally {
+      runInAction(() => {
+        const next = new Set(this.uploading);
+        next.delete(station);
+        this.uploading = next;
+      });
     }
+  }
+
+  isUploadingPhoto(station: number) {
+    return this.uploading.has(station);
   }
 }

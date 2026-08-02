@@ -1059,6 +1059,25 @@
   border-radius: var(--r-lg);
 }
 
+/* Covers the photo area while an upload is in flight. Sits above the image but
+   below nothing else, so the button underneath cannot be reached by a second
+   press even before it is disabled. */
+.zone-photo__busy {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  backdrop-filter: blur(2px);
+  color: var(--text-2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
 .zone-photo__btn {
   position: absolute;
   right: var(--s3);
@@ -1071,6 +1090,11 @@
   border: 1px solid var(--line);
   font-size: var(--text-sm);
   font-weight: 600;
+}
+
+.zone-photo__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* ------------------------------------------------------------ start times */
