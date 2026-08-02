@@ -15,7 +15,14 @@ import {
 } from '../components/ui';
 import { useStore } from '../stores/RootStore';
 import { describeFrequency, formatStartTime } from '../stores/ScheduleStore';
-import { describeNextRun, describePlanFrequency, describeStartTimes } from '../stores/PlanStore';
+import { useNow } from '../components/useNow';
+import {
+  countdownInterval,
+  describeNextRun,
+  describePlanFrequency,
+  describeStartTimes,
+  isDue,
+} from '../stores/PlanStore';
 
 type View = 'plans' | 'programs' | 'calendar';
 
@@ -191,6 +198,10 @@ const PlanCard = observer(function PlanCard({ plan }: { plan: Plan }) {
   const { plans, ui, controllers, zones } = useStore();
   const running = plans.active?.planId === plan.id;
 
+  // Ticks once a second only over the last two minutes, where the pill counts down
+  // in seconds; every half minute otherwise.
+  const now = useNow(countdownInterval(plan.nextRunUtc));
+
   return (
     <Card className={`plan${plan.enabled ? '' : ' is-off'}${running ? ' is-running' : ''}`}>
       <div className="plan__head">
@@ -233,7 +244,13 @@ const PlanCard = observer(function PlanCard({ plan }: { plan: Plan }) {
 
       <div className="plan__meta">
         {plan.enabled ? (
-          <Pill tone="water">Next {describeNextRun(plan.nextRunUtc)}</Pill>
+          <Pill tone="water">
+            {plan.nextRunUtc === null
+              ? 'Not scheduled'
+              : isDue(plan.nextRunUtc, now)
+                ? 'Due now'
+                : `Next ${describeNextRun(plan.nextRunUtc, now)}`}
+          </Pill>
         ) : (
           <Pill tone="neutral">Off</Pill>
         )}

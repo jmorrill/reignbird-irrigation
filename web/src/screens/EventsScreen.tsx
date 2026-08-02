@@ -1,10 +1,10 @@
 import { motion } from 'framer-motion';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState } from 'react';
 import type { RunTrigger, WeatherDay } from '../api/types';
 import { AlertIcon, DropIcon, WeatherIcon, WindIcon } from '../components/Icons';
 import { StatusHero } from '../components/NowWatering';
 import { Card, EmptyState, Pill, SectionHead, Skeleton } from '../components/ui';
+import { useNow } from '../components/useNow';
 import { useStore } from '../stores/RootStore';
 
 export const EventsScreen = observer(function EventsScreen() {
@@ -241,24 +241,6 @@ function describeTimeAgo(iso: string, now: number): string {
   if (hours < 24) return `${hours}h ago`;
 
   return `${Math.floor(hours / 24)}d ago`;
-}
-
-/**
- * A clock that re-renders on an interval, so relative times age instead of
- * freezing at whatever they read when the screen was opened.
- *
- * A minute is as fine as anything here is displayed, so there is nothing to gain
- * from ticking faster.
- */
-function useNow(intervalMs: number): number {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
-    return () => window.clearInterval(id);
-  }, [intervalMs]);
-
-  return now;
 }
 
 /* ------------------------------------------------------------------ usage */

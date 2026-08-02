@@ -309,14 +309,34 @@ export function formatMinuteOfDay(minutes: number): string {
   return `${display}:${String(mins).padStart(2, '0')}${suffix}`;
 }
 
-/** A relative "in 4 hours" for the next scheduled pass. */
-export function describeNextRun(iso: string | null): string {
+/**
+ * A relative "in 4 hours" for the next scheduled pass.
+ *
+ * The last minute is counted in seconds. Rounding it to minutes produced "in 0 min",
+ * which reads as a stopped clock at exactly the point somebody is watching to see
+ * whether the thing is about to start.
+ *
+ * Rounds down below the hour, so it never claims more time than there is: rounding to
+ * nearest turned 90 seconds into "in 2 min" and, worse, a run that was already
+ * overdue by a few seconds into "in 0 min" rather than "Due now".
+ *
+ * Takes the current time rather than reading the clock, so callers that tick can
+ * pass theirs and the value moves.
+ */
+export function describeNextRun(iso: string | null, now: number = Date.now()): string {
   if (!iso) return 'Not scheduled';
 
   const when = new Date(iso);
-  const minutes = Math.round((when.getTime() - Date.now()) / 60000);
+  const milliseconds = when.getTime() - now;
 
-  if (minutes < 0) return 'Due now';
+  // The final second included: "in 0 sec" is the same stopped-clock reading that
+  // rounding to minutes used to produce, just for a shorter while.
+  if (milliseconds < 1000) return 'Due now';
+
+  const seconds = Math.floor(milliseconds / 1000);
+  if (seconds < 60) return `in ${seconds} sec`;
+
+  const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `in ${minutes} min`;
 
   const hours = Math.round(minutes / 60);
@@ -324,4 +344,28 @@ export function describeNextRun(iso: string | null): string {
 
   return when.toLocaleDateString(undefined, { weekday: 'long' })
     + ` at ${when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+/**
+ * How often a countdown to this moment needs redrawing.
+ *
+ * A second inside the last two minutes, where the display reads in seconds and is
+ * about to; half a minute otherwise, which is enough to keep a value shown in
+ * minutes honest without re-rendering a card sixty times for every change.
+ */
+export function countdownInterval(iso: string | null, now: number = Date.now()): number {
+  if (!iso) return 30_000;
+  return Date.parse(iso) - now < 120_000 ? 1_000 : 30_000;
+}
+
+/**
+ * Whether that moment has arrived.
+ *
+ * Callers need this because describeNextRun returns two kinds of thing: a fragment
+ * that reads as a continuation ("in 45 sec") and a complete statement ("Due now").
+ * Prefixing the second gives "Next run Due now", so the two cases are told apart
+ * here rather than by matching on the wording.
+ */
+export function isDue(iso: string | null, now: number = Date.now()): boolean {
+  return iso !== null && Date.parse(iso) - now < 1000;
 }

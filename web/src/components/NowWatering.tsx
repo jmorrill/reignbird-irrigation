@@ -177,6 +177,11 @@ const DelayHero = observer(function DelayHero({ days }: { days: number }) {
 const IdleHero = observer(function IdleHero() {
   const { controllers, schedules, zones, plans } = useStore();
 
+  // The soonest plan sets the pace: a countdown reading in seconds has to be redrawn
+  // every second, and one reading "in 6 hours" plainly does not.
+  const soonest = soonestNextRun(plans.enabled);
+  const now = useNow(countdownInterval(soonest));
+
   // Plans answer this by themselves whenever there is one, and they arrive in a
   // single database read. The controller's own programs cost a SIP exchange per
   // program and are reliably the slowest request on the screen, so waiting for
@@ -184,7 +189,7 @@ const IdleHero = observer(function IdleHero() {
   // case the program fallback is ever used in. Waiting for both meant the hero sat
   // on a skeleton until the slowest request in the app returned, to display an
   // answer that had been settled since the fastest one did.
-  const fromPlans = plans.loaded ? nextRunFromPlans(plans.enabled) : null;
+  const fromPlans = plans.loaded ? nextRunFromPlans(plans.enabled, now) : null;
   const known = plans.loaded && (fromPlans !== null || schedules.loaded);
 
   // Still "not sure yet" until one of them has answered: announcing "No watering
@@ -295,8 +300,9 @@ function useRunTotal(station: number, remaining: number): number {
 }
 
 import type { Plan, Program } from '../api/types';
-import { describeNextRun } from '../stores/PlanStore';
+import { countdownInterval, describeNextRun, isDue } from '../stores/PlanStore';
 import { describeFrequency, formatStartTime } from '../stores/ScheduleStore';
+import { useNow } from './useNow';
 
 /**
  * What this controller is going to do next, and when.
@@ -317,7 +323,15 @@ type NextRun = { headline: string; detail: string };
  * Returns null only when there are no plans at all — the one case where the
  * controller's own programs are worth waiting for.
  */
-function nextRunFromPlans(plans: Plan[]): NextRun | null {
+/** When the soonest enabled plan is due, or null if none is. */
+function soonestNextRun(plans: Plan[]): string | null {
+  return plans
+    .map((plan) => plan.nextRunUtc)
+    .filter((iso): iso is string => iso !== null)
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0] ?? null;
+}
+
+function nextRunFromPlans(plans: Plan[], now: number): NextRun | null {
   const scheduled = plans
     .filter((plan) => plan.nextRunUtc !== null)
     .sort((a, b) => Date.parse(a.nextRunUtc!) - Date.parse(b.nextRunUtc!));
@@ -327,7 +341,10 @@ function nextRunFromPlans(plans: Plan[]): NextRun | null {
     const passes = soonest.passesPerDay > 1 ? `${soonest.passesPerDay}× a day · ` : '';
 
     return {
-      headline: `Next run ${describeNextRun(soonest.nextRunUtc)}`,
+      // "Next run Due now" is not a sentence. Once it is due, the phrase stands alone.
+      headline: isDue(soonest.nextRunUtc, now)
+        ? 'Starting now'
+        : `Next run ${describeNextRun(soonest.nextRunUtc, now)}`,
       detail: `${soonest.name} · ${passes}${soonest.wateringMinutesPerDay} min of watering a day`,
     };
   }
