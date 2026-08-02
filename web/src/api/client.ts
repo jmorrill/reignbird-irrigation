@@ -158,6 +158,25 @@ const put = <T>(path: string, body: unknown) =>
   request<T>(path, { method: 'PUT', body: JSON.stringify(body) });
 const del = <T>(path: string) => request<T>(path, { method: 'DELETE' });
 
+/** The picture formats the server stores, and the extension it expects for each. */
+export const PHOTO_EXTENSIONS: Readonly<Record<string, string>> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
+
+/**
+ * A filename the server will accept for an uploaded photo.
+ *
+ * Falls back to whatever the picker supplied when the type is unrecognised, so the
+ * server gets to give its own answer about what it does and does not take rather
+ * than this quietly inventing an extension for it.
+ */
+function uploadNameFor(file: File): string {
+  const extension = PHOTO_EXTENSIONS[file.type];
+  return extension ? `photo${extension}` : file.name;
+}
+
 export const api = {
   /** Postcode or place-name lookup, for people who do not know their latitude. */
   places: (query: string) => get<Place[]>(`/api/settings/places?q=${encodeURIComponent(query)}`),
@@ -239,7 +258,12 @@ export const api = {
 
     uploadPhoto: async (id: number, station: number, file: File) => {
       const form = new FormData();
-      form.append('file', file);
+      // Named from the type the browser reported rather than whatever the picker
+      // called it. The server validates by extension, and a capture straight from
+      // an Android camera frequently arrives as "image" with no extension at all —
+      // a perfectly good JPEG, rejected for how it was named. The server renames
+      // the file on arrival, so nothing is lost by not keeping the original.
+      form.append('file', file, uploadNameFor(file));
       // Not through request(): the body is FormData, and setting a JSON content type
       // would stop the browser writing the multipart boundary.
       const response = await fetch(`${API_BASE}/api/controllers/${id}/zones/${station}/photo`, {
@@ -248,7 +272,17 @@ export const api = {
         headers: authHeaders(),
       });
       if (response.status === 401) handleUnauthorized('/api/photo');
-      if (!response.ok) throw new ApiError('Could not save the photo.', response.status);
+      if (!response.ok) {
+        // The server says useful things here — which file types it takes, that the
+        // file was empty — and this used to replace all of them with "Could not
+        // save the photo", leaving no way to find out what was wrong.
+        const message = await response
+          .json()
+          .then((body: { message?: string }) => body?.message)
+          .catch(() => undefined);
+
+        throw new ApiError(message ?? 'Could not save the photo.', response.status);
+      }
       return (await response.json()) as { photoUrl: string };
     },
   },

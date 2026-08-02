@@ -130,6 +130,8 @@ const ZoneSheet = observer(function ZoneSheet() {
   if (!zone) return <Sheet open={false} onClose={() => ui.closeZoneSheet()} title="Zone">{null}</Sheet>;
 
   const uploading = zones.isUploadingPhoto(zone.stationNumber);
+  const preview = zones.previewFor(zone.stationNumber);
+  const shown = preview ?? photo;
 
   return (
     <Sheet
@@ -153,8 +155,16 @@ const ZoneSheet = observer(function ZoneSheet() {
     >
       <div className="form-stack">
         <div className="zone-photo">
-          {photo ? (
-            <img src={photo} alt="" className="zone-photo__img" />
+          {/* The picked file first: it is already on the device, so it appears at
+              once and the wait is spent looking at the photo. Then the stored one.
+              "No photo yet" is only true when there is neither — while one is on its
+              way it would be a wrong answer, not just an early one. */}
+          {shown ? (
+            <img src={shown} alt="" className="zone-photo__img" />
+          ) : zone.photoUrl ? (
+            <div className="zone-photo__empty">
+              <Spinner size={22} />
+            </div>
           ) : (
             <div className="zone-photo__empty">
               <CameraIcon size={26} />
@@ -183,7 +193,13 @@ const ZoneSheet = observer(function ZoneSheet() {
           <input
             ref={fileInput}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            // Deliberately the broad type rather than the three the server stores.
+            // Android offers the camera alongside the gallery for "image/*", but
+            // narrows to gallery apps when given an explicit list — so naming the
+            // exact formats supported was what removed the obvious way to take a
+            // picture of the zone you are standing in front of. Anything the server
+            // will not keep is caught before it is uploaded.
+            accept="image/*"
             className="visually-hidden"
             onChange={(event) => {
               const file = event.target.files?.[0];

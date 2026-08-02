@@ -1,7 +1,12 @@
 import { makeAutoObservable, runInAction } from 'mobx';
-import { ApiError, api } from '../api/client';
+import { ApiError, PHOTO_EXTENSIONS, api } from '../api/client';
 import type { Zone } from '../api/types';
 import type { RootStore } from './RootStore';
+
+/** Marks a photo URL as freshly written, so anything caching it fetches again. */
+function stamped(photoUrl: string): string {
+  return `${photoUrl}${photoUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
+}
 
 export class ZoneStore {
   zones: Zone[] = [];
@@ -19,6 +24,15 @@ export class ZoneStore {
    * change, so reactivity does not depend on how the set itself is observed.
    */
   uploading: ReadonlySet<number> = new Set();
+
+  /**
+   * Object URLs for the pictures currently going up, keyed the same way.
+   *
+   * The picked file can be shown straight away — it is already on the device — so
+   * the wait is spent looking at the photo rather than at a placeholder wondering
+   * whether the right one was chosen.
+   */
+  previews: ReadonlyMap<number, string> = new Map();
 
   private readonly root: RootStore;
 
@@ -130,15 +144,30 @@ export class ZoneStore {
     const controllerId = this.root.controllers.selectedId;
     if (controllerId === null) return;
 
+    // Caught here rather than after several megabytes have gone up the wire. Only
+    // when the browser actually reported a type: some pickers report none at all,
+    // and refusing those would block files that are perfectly fine.
+    if (file.type && !(file.type in PHOTO_EXTENSIONS)) {
+      this.root.ui.notify('bad', 'Photo not saved', 'Photos must be JPEG, PNG or WebP.');
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+
     runInAction(() => {
       this.uploading = new Set(this.uploading).add(station);
+      this.previews = new Map(this.previews).set(station, preview);
     });
 
     try {
       const { photoUrl } = await api.zones.uploadPhoto(controllerId, station, file);
       runInAction(() => {
         const index = this.zones.findIndex((zone) => zone.stationNumber === station);
-        if (index >= 0) this.zones[index] = { ...this.zones[index], photoUrl };
+        // Replacing a photo of the same format writes the same filename, so the URL
+        // comes back identical and nothing downstream can tell the picture changed:
+        // the old one stays on screen and the replacement looks like it failed. The
+        // stamp is what makes it a different URL to everything that watches one.
+        if (index >= 0) this.zones[index] = { ...this.zones[index], photoUrl: stamped(photoUrl) };
       });
       this.root.ui.notify('good', 'Photo saved');
     } catch (error) {
@@ -146,14 +175,24 @@ export class ZoneStore {
       this.root.ui.notify('bad', 'Photo not saved', message);
     } finally {
       runInAction(() => {
-        const next = new Set(this.uploading);
-        next.delete(station);
-        this.uploading = next;
+        const stillUploading = new Set(this.uploading);
+        stillUploading.delete(station);
+        this.uploading = stillUploading;
+
+        const remainingPreviews = new Map(this.previews);
+        remainingPreviews.delete(station);
+        this.previews = remainingPreviews;
       });
+
+      URL.revokeObjectURL(preview);
     }
   }
 
   isUploadingPhoto(station: number) {
     return this.uploading.has(station);
+  }
+
+  previewFor(station: number) {
+    return this.previews.get(station) ?? null;
   }
 }

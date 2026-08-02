@@ -21,6 +21,11 @@ export function useMediaUrl(path: string | null | undefined): string | null {
       return;
     }
 
+    // Let go of the previous photo before fetching this one. The cleanup below
+    // revokes the URL this state still pointed at, so keeping it meant rendering a
+    // revoked object URL — a broken image — until the new blob arrived.
+    setObjectUrl(null);
+
     // A request that outlives the component — the user swiped to another zone —
     // must neither set state nor leak the blob it just created.
     let cancelled = false;
