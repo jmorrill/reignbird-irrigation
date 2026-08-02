@@ -269,6 +269,9 @@ export const api = {
       }
       return (await response.json()) as { photoUrl: string; thumbUrl: string };
     },
+
+    deletePhoto: (id: number, station: number) =>
+      del<void>(`/api/controllers/${id}/zones/${station}/photo`),
   },
 
   control: {

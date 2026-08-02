@@ -4,6 +4,9 @@ import { PHOTO_EXTENSIONS, prepareForUpload } from '../api/photos';
 import type { Zone } from '../api/types';
 import type { RootStore } from './RootStore';
 
+/** What is currently being done to a zone's photo, if anything. */
+export type PhotoTask = 'uploading' | 'removing';
+
 /** Marks a photo URL as freshly written, so anything caching it fetches again. */
 function stamped(photoUrl: string): string {
   return `${photoUrl}${photoUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
@@ -21,10 +24,15 @@ export class ZoneStore {
   loaded = false;
 
   /**
-   * Stations with a photo upload in flight. Replaced rather than mutated on each
-   * change, so reactivity does not depend on how the set itself is observed.
+   * Stations with a photo operation in flight, and which one.
+   *
+   * Keyed by station rather than a single flag, because the sheet can be closed and
+   * another zone opened while the first is still going — a lone flag would show the
+   * second zone as busy and leave the first looking idle. Replaced rather than
+   * mutated on each change, so reactivity does not depend on how the map itself is
+   * observed.
    */
-  uploading: ReadonlySet<number> = new Set();
+  photoTasks: ReadonlyMap<number, PhotoTask> = new Map();
 
   /**
    * Object URLs for the pictures currently going up, keyed the same way.
@@ -159,8 +167,8 @@ export class ZoneStore {
 
     const preview = URL.createObjectURL(file);
 
+    this.setPhotoTask(station, 'uploading');
     runInAction(() => {
-      this.uploading = new Set(this.uploading).add(station);
       this.previews = new Map(this.previews).set(station, preview);
     });
 
@@ -202,12 +210,47 @@ export class ZoneStore {
       // Nothing is coming to replace it, so put the previous photo back now.
       this.releasePreview(station);
     } finally {
-      runInAction(() => {
-        const stillUploading = new Set(this.uploading);
-        stillUploading.delete(station);
-        this.uploading = stillUploading;
-      });
+      this.setPhotoTask(station, null);
     }
+  }
+
+  /**
+   * Removes a zone's photo, both renditions and the files themselves.
+   *
+   * Any leftover preview goes with it: while one is held it is what the sheet
+   * displays, so a photo removed underneath it would appear not to have gone.
+   */
+  async clearPhoto(station: number) {
+    const controllerId = this.root.controllers.selectedId;
+    if (controllerId === null) return;
+
+    this.setPhotoTask(station, 'removing');
+
+    try {
+      await api.zones.deletePhoto(controllerId, station);
+
+      this.releasePreview(station);
+      runInAction(() => {
+        const index = this.zones.findIndex((zone) => zone.stationNumber === station);
+        if (index >= 0) this.zones[index] = { ...this.zones[index], photoUrl: null, thumbUrl: null };
+      });
+
+      this.root.ui.notify('good', 'Photo removed');
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : 'Could not remove the photo.';
+      this.root.ui.notify('bad', 'Photo not removed', message);
+    } finally {
+      this.setPhotoTask(station, null);
+    }
+  }
+
+  private setPhotoTask(station: number, task: PhotoTask | null) {
+    runInAction(() => {
+      const next = new Map(this.photoTasks);
+      if (task) next.set(station, task);
+      else next.delete(station);
+      this.photoTasks = next;
+    });
   }
 
   /**
@@ -230,8 +273,8 @@ export class ZoneStore {
     URL.revokeObjectURL(url);
   }
 
-  isUploadingPhoto(station: number) {
-    return this.uploading.has(station);
+  photoTask(station: number): PhotoTask | null {
+    return this.photoTasks.get(station) ?? null;
   }
 
   previewFor(station: number) {

@@ -101,6 +101,31 @@ public static class Endpoints
         }
     }
 
+    /// <summary>
+    /// Removes a stored media file, and does not care if it is already gone.
+    ///
+    /// A missing file is the outcome being asked for, and a locked one is not worth
+    /// failing the request over: the record is cleared either way, so the worst case
+    /// is a stray file nothing points at.
+    /// </summary>
+    private static void DeleteQuietly(string mediaDirectory, string? fileName)
+    {
+        if (string.IsNullOrEmpty(fileName)) return;
+
+        try
+        {
+            // The bare name only. These are written by this app and cannot currently
+            // contain a path, but joining a stored value straight onto a directory is
+            // how that stops being true.
+            var path = Path.Combine(mediaDirectory, Path.GetFileName(fileName));
+            if (File.Exists(path)) File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Left on disk, unreferenced.
+        }
+    }
+
     private static async Task<ControllerSummary> SummarizeAsync(
         AppDbContext db, ControllerRecord record, ControllerRegistry registry, RunClock clock,
         CancellationToken ct)
@@ -430,6 +455,27 @@ public static class Endpoints
                 thumbUrl = zone.ThumbPath is null ? $"/media/{fileName}" : $"/media/{zone.ThumbPath}",
             });
         }).DisableAntiforgery();
+
+        group.MapDelete("/{station:int}/photo", async (
+            int id, int station, AppDbContext db, StoragePaths storage, CancellationToken ct) =>
+        {
+            var zone = await db.Zones.FirstOrDefaultAsync(
+                z => z.ControllerId == id && z.StationNumber == station, ct);
+
+            if (zone is null)
+                return Results.NotFound(new { message = $"Controller {id} has no station {station}." });
+
+            // Both renditions go, and the files with them: a zone photo is of somebody's
+            // garden, and "removed" should mean removed rather than merely unreferenced.
+            DeleteQuietly(storage.Media, zone.PhotoPath);
+            DeleteQuietly(storage.Media, zone.ThumbPath);
+
+            zone.PhotoPath = null;
+            zone.ThumbPath = null;
+            await db.SaveChangesAsync(ct);
+
+            return Results.NoContent();
+        });
     }
 
     // -------------------------------------------------------------- control

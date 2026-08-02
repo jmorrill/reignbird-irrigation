@@ -143,7 +143,8 @@ const ZoneSheet = observer(function ZoneSheet() {
 
   if (!zone) return <Sheet open={false} onClose={() => ui.closeZoneSheet()} title="Zone">{null}</Sheet>;
 
-  const uploading = zones.isUploadingPhoto(zone.stationNumber);
+  const task = zones.photoTask(zone.stationNumber);
+  const busy = task !== null;
   const preview = zones.previewFor(zone.stationNumber);
   const shown = preview ?? photo;
 
@@ -190,20 +191,42 @@ const ZoneSheet = observer(function ZoneSheet() {
               upload read as a button that did nothing, and people pressed it
               again. Covering the area is also what makes a second press
               impossible while the first is still going. */}
-          {uploading && (
+          {busy && (
             <div className="zone-photo__busy" role="status">
               <Spinner size={22} />
-              <span>Uploading photo…</span>
+              <span>{task === 'removing' ? 'Removing photo…' : 'Uploading photo…'}</span>
             </div>
           )}
 
-          <button
-            className="zone-photo__btn"
-            disabled={uploading}
-            onClick={() => fileInput.current?.click()}
-          >
-            {uploading ? 'Uploading…' : zone.photoUrl ? 'Replace photo' : 'Add photo'}
-          </button>
+          <div className="zone-photo__actions">
+            {zone.photoUrl && (
+              <button
+                className="zone-photo__btn"
+                disabled={busy}
+                onClick={() => {
+                  if (confirm(`Remove the photo of ${zone.name}?`)) {
+                    void zones.clearPhoto(zone.stationNumber);
+                  }
+                }}
+              >
+                Remove
+              </button>
+            )}
+
+            <button
+              className="zone-photo__btn"
+              disabled={busy}
+              onClick={() => fileInput.current?.click()}
+            >
+              {task === 'uploading'
+                ? 'Uploading…'
+                : task === 'removing'
+                  ? 'Removing…'
+                  : zone.photoUrl
+                    ? 'Replace photo'
+                    : 'Add photo'}
+            </button>
+          </div>
           <input
             ref={fileInput}
             type="file"

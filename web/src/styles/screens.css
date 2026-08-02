@@ -1081,10 +1081,17 @@
   font-weight: 500;
 }
 
-.zone-photo__btn {
+/* Deliberately no z-index: the busy overlay carries one, so it covers these while
+   a photo operation is in flight and a second press cannot reach them. */
+.zone-photo__actions {
   position: absolute;
   right: var(--s3);
   bottom: var(--s3);
+  display: flex;
+  gap: var(--s2);
+}
+
+.zone-photo__btn {
   height: 32px;
   padding: 0 var(--s3);
   border-radius: var(--r-full);
