@@ -13,18 +13,18 @@ import { API_BASE, getAuthToken } from '../api/client';
  * keep their existing "no photo" placeholder.
  */
 export function useMediaUrl(path: string | null | undefined): string | null {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  // The path is remembered alongside its object URL so the two can never be
+  // reported out of step. Holding the URL alone meant that for the one render
+  // between the path changing and the effect running, this returned the previous
+  // photo's URL — which the cleanup was about to revoke — as though it were the
+  // answer for the new one.
+  const [resolved, setResolved] = useState<{ path: string; url: string } | null>(null);
 
   useEffect(() => {
     if (!path) {
-      setObjectUrl(null);
+      setResolved(null);
       return;
     }
-
-    // Let go of the previous photo before fetching this one. The cleanup below
-    // revokes the URL this state still pointed at, so keeping it meant rendering a
-    // revoked object URL — a broken image — until the new blob arrived.
-    setObjectUrl(null);
 
     // A request that outlives the component — the user swiped to another zone —
     // must neither set state nor leak the blob it just created.
@@ -40,7 +40,7 @@ export function useMediaUrl(path: string | null | undefined): string | null {
       .then((blob) => {
         if (cancelled || !blob) return;
         created = URL.createObjectURL(blob);
-        setObjectUrl(created);
+        setResolved({ path, url: created });
       })
       .catch(() => {
         /* Offline, or the photo is gone. The placeholder covers it. */
@@ -52,5 +52,7 @@ export function useMediaUrl(path: string | null | undefined): string | null {
     };
   }, [path]);
 
-  return objectUrl;
+  // Only ever the URL for the path being asked about. Anything else is a photo of
+  // something the caller is no longer showing.
+  return resolved && resolved.path === path ? resolved.url : null;
 }

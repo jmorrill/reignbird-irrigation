@@ -153,6 +153,10 @@ export class ZoneStore {
       return;
     }
 
+    // Anything left over from a previous attempt on this zone, before it is
+    // overwritten in the map and becomes unreachable.
+    this.releasePreview(station);
+
     const preview = URL.createObjectURL(file);
 
     runInAction(() => {
@@ -185,22 +189,45 @@ export class ZoneStore {
         }
       });
       this.root.ui.notify('good', 'Photo saved');
+
+      // The preview deliberately outlives the upload. The stored photo still has to
+      // be downloaded before it can be shown, and dropping the preview at the moment
+      // the upload finished left the picture to disappear for the length of that
+      // download. Whoever is displaying it releases it once the real one has
+      // arrived to take its place.
     } catch (error) {
       const message = error instanceof ApiError ? error.message : 'Could not save the photo.';
       this.root.ui.notify('bad', 'Photo not saved', message);
+
+      // Nothing is coming to replace it, so put the previous photo back now.
+      this.releasePreview(station);
     } finally {
       runInAction(() => {
         const stillUploading = new Set(this.uploading);
         stillUploading.delete(station);
         this.uploading = stillUploading;
-
-        const remainingPreviews = new Map(this.previews);
-        remainingPreviews.delete(station);
-        this.previews = remainingPreviews;
       });
-
-      URL.revokeObjectURL(preview);
     }
+  }
+
+  /**
+   * Drops the preview for a zone, once something is on screen to replace it.
+   *
+   * Called when the stored photo has finished downloading, and when the sheet
+   * closes — that second one is what stops a preview nobody is looking at from
+   * holding on to the original file, which can be several megabytes.
+   */
+  releasePreview(station: number) {
+    const url = this.previews.get(station);
+    if (!url) return;
+
+    runInAction(() => {
+      const remaining = new Map(this.previews);
+      remaining.delete(station);
+      this.previews = remaining;
+    });
+
+    URL.revokeObjectURL(url);
   }
 
   isUploadingPhoto(station: number) {

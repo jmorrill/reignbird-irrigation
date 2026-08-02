@@ -127,6 +127,20 @@ const ZoneSheet = observer(function ZoneSheet() {
 
   const [minutes, setMinutes] = useState(10);
 
+  // The handover. useMediaUrl reports a URL only once it belongs to the photo being
+  // asked for, so a non-null answer here means the stored photo is downloaded and
+  // ready — which is the moment, and the only moment, the preview is safe to drop.
+  useEffect(() => {
+    if (station !== null && photo) zones.releasePreview(station);
+  }, [station, photo, zones]);
+
+  // And if the sheet is closed before that happens, let go anyway rather than hold
+  // the original file — several megabytes — for a picture nobody is looking at.
+  useEffect(() => {
+    if (station === null) return;
+    return () => zones.releasePreview(station);
+  }, [station, zones]);
+
   if (!zone) return <Sheet open={false} onClose={() => ui.closeZoneSheet()} title="Zone">{null}</Sheet>;
 
   const uploading = zones.isUploadingPhoto(zone.stationNumber);
