@@ -121,7 +121,9 @@ public sealed record CapabilitiesDto(
     bool SupportsFlowMonitoring,
     bool SupportsIrrigationStatistics,
     bool SupportsZoneSeasonalAdjust,
-    bool SupportsStationErrors)
+    bool SupportsStationErrors,
+    bool SupportsControllerLog,
+    bool SupportsEventTimestamps)
 {
     public static CapabilitiesDto From(ControllerCapabilities capabilities) => new(
         capabilities.Model.ModelId,
@@ -138,7 +140,9 @@ public sealed record CapabilitiesDto(
         capabilities.SupportsFlowMonitoring,
         capabilities.SupportsIrrigationStatistics,
         capabilities.SupportsZoneSeasonalAdjust,
-        capabilities.SupportsStationErrors);
+        capabilities.SupportsStationErrors,
+        capabilities.SupportsControllerLog,
+        capabilities.SupportsEventTimestamps);
 }
 
 public sealed record ZoneDto(

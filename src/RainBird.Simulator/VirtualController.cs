@@ -209,6 +209,11 @@ public sealed class VirtualController
         SipCommand.IrrigationStatistics => true,
         SipCommand.GetZonesSeasonalAdjust => true,
         SipCommand.CurrentStationError => true,
+        // Reported unsupported on purpose. Nobody has recorded what a real controller
+        // answers to either of these, so emulating them would mean inventing a reply
+        // and then testing our decoder against our own invention. Saying "no" keeps
+        // the simulator honest about what is actually known.
+        SipCommand.LogEntries or SipCommand.ControllerEventTimestamp => false,
         SipCommand.RetrieveSchedule or SipCommand.SetSchedule => Model.IsProgramBased && SupportsSchedulePages,
         SipCommand.CombinedControllerState => SupportsCombinedState,
         SipCommand.SetControllerState => SupportsControllerToggle,

@@ -207,6 +207,31 @@ public class HardwareBehaviourTests
         Assert.True(capabilities.RequiresSoftwareScheduling);
     }
 
+    /// <summary>
+    /// The event log and event timestamps are asked about, and nothing more.
+    ///
+    /// SIP <c>70</c> has no response layout described anywhere available — not in the
+    /// app's own resource tables, not in any community library — and while <c>4A</c>
+    /// is specified in both directions, the event ids it is keyed by are not. Neither
+    /// can be decoded from a specification, only from a recording of a real
+    /// controller answering. The probe exists so that the first question — is there
+    /// anything here to record — can be answered without guessing.
+    /// </summary>
+    [Fact]
+    public async Task The_event_log_is_probed_for_but_not_assumed()
+    {
+        var controller = new VirtualController(stationCount: 8);
+        var client = new LnkClient(new SimulatorTransport(controller));
+
+        var capabilities = await client.ProbeCapabilitiesAsync();
+
+        // False here is the simulator being honest rather than the commands being
+        // unavailable in general: it cannot emulate a reply nobody has seen, and
+        // inventing one would mean testing a decoder against our own fiction.
+        Assert.False(capabilities.SupportsControllerLog);
+        Assert.False(capabilities.SupportsEventTimestamps);
+    }
+
     [Fact]
     public async Task A_controller_with_schedule_pages_does_not_require_software_scheduling()
     {

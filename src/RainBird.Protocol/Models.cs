@@ -111,8 +111,8 @@ public sealed record ControllerCapabilities
 
     /// <summary>
     /// The controller exposes its schedule through the SIP page protocol
-    /// (<c>20</c>/<c>21</c>). Newer firmware does not — a physical ESP-ME3 on protocol
-    /// 2.12 rejects both — and uses the universal message transport instead.
+    /// (<c>20</c>/<c>21</c>). Newer firmware does not ï¿½ a physical ESP-ME3 on protocol
+    /// 2.12 rejects both ï¿½ and uses the universal message transport instead.
     /// </summary>
     public required bool SupportsSchedulePages { get; init; }
 
@@ -129,6 +129,26 @@ public sealed record ControllerCapabilities
     public required bool SupportsIrrigationStatistics { get; init; }
     public required bool SupportsZoneSeasonalAdjust { get; init; }
     public required bool SupportsStationErrors { get; init; }
+
+    /// <summary>
+    /// The controller keeps its own event log (SIP <c>70</c>).
+    ///
+    /// Probed but not yet read: the request takes no payload and the response layout
+    /// is not described anywhere we have â€” not in the app's own resource tables, and
+    /// not by any community library. Decoding it means observing what a real
+    /// controller returns, and this flag is what says whether there is anything to
+    /// observe before going looking.
+    /// </summary>
+    public required bool SupportsControllerLog { get; init; }
+
+    /// <summary>
+    /// Timestamps can be asked for by event id (SIP <c>4A</c>).
+    ///
+    /// Both directions of this one are specified â€” an id in, an id and a four-byte
+    /// timestamp back â€” but which ids exist and what each one means is not, so it is
+    /// equally unread for now.
+    /// </summary>
+    public required bool SupportsEventTimestamps { get; init; }
 
     public int StationCount => Stations.Count;
 

@@ -478,6 +478,10 @@ public sealed class LnkClient
                 .ConfigureAwait(false),
             SupportsStationErrors = await IsCommandSupportedAsync(SipCommand.CurrentStationError, ct)
                 .ConfigureAwait(false),
+            SupportsControllerLog = await IsCommandSupportedAsync(SipCommand.LogEntries, ct)
+                .ConfigureAwait(false),
+            SupportsEventTimestamps = await IsCommandSupportedAsync(SipCommand.ControllerEventTimestamp, ct)
+                .ConfigureAwait(false),
         };
     }
 
