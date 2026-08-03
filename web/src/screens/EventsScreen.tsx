@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion';
 import { observer } from 'mobx-react-lite';
+import { useState } from 'react';
 import type { RunTrigger, WeatherDay } from '../api/types';
-import { AlertIcon, DropIcon, WeatherIcon, WindIcon } from '../components/Icons';
+import { AlertIcon, ChevronIcon, DropIcon, WeatherIcon, WindIcon } from '../components/Icons';
 import { StatusHero } from '../components/NowWatering';
 import { Card, EmptyState, Pill, SectionHead, Skeleton } from '../components/ui';
 import { useNow } from '../components/useNow';
@@ -117,10 +118,31 @@ const WeatherCell = observer(function WeatherCell({ day, isToday }: { day: Weath
  *
  * Looking backwards is the one thing nothing else on this screen does, so that is
  * all this section does now.
+ *
+ * Days are collapsed. A plan waters every zone, and cycle and soak waters each of
+ * them more than once, so a single day is comfortably twenty rows and the section
+ * grew long enough to bury everything below it. The totals on each day header are
+ * the answer most of the time; the breakdown is one tap away.
  */
 const RunTimeline = observer(function RunTimeline() {
   const { history } = useStore();
   const now = useNow(60_000);
+
+  // Collapsed to start. The totals on each day header are the answer most of the
+  // time; the zone-by-zone breakdown is what made this section long enough to
+  // scroll past everything else on the screen.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+
+  // Enough to answer "is this thing watering" without becoming a scroll of its own.
+  // The Schedules tab keeps the month calendar for anything further back.
+  const DAYS_SHOWN = 3;
+
+  const toggle = (day: string) =>
+    setExpanded((open) => {
+      const next = new Set(open);
+      if (!next.delete(day)) next.add(day);
+      return next;
+    });
 
   return (
     <section>
@@ -137,7 +159,7 @@ const RunTimeline = observer(function RunTimeline() {
         </Card>
       ) : (
         <div className="stack-sm">
-          {history.runsByDay.slice(0, 5).map((group, index) => (
+          {history.runsByDay.slice(0, DAYS_SHOWN).map((group, index) => (
             <motion.div
               key={group.day}
               initial={{ opacity: 0, y: 6 }}
@@ -145,13 +167,25 @@ const RunTimeline = observer(function RunTimeline() {
               transition={{ delay: Math.min(index * 0.03, 0.2), duration: 0.25 }}
             >
               <div className="day-group">
-                <div className="day-group__head">
+                <button
+                  type="button"
+                  className="day-group__head"
+                  aria-expanded={expanded.has(group.day)}
+                  aria-controls={`runs-${group.day}`}
+                  onClick={() => toggle(group.day)}
+                >
+                  <ChevronIcon
+                    size={15}
+                    className={`day-group__chevron${expanded.has(group.day) ? ' is-open' : ''}`}
+                  />
                   <span className="day-group__label">{group.label}</span>
                   <span className="day-group__stat data">
                     {group.minutes} min · {group.gallons} gal
                   </span>
-                </div>
-                <Card padded={false}>
+                </button>
+
+                {expanded.has(group.day) && (
+                <Card padded={false} id={`runs-${group.day}`}>
                   {group.runs.map((run) => (
                     <div key={run.id} className="run-row">
                       <span className="run-row__station data">
@@ -178,6 +212,7 @@ const RunTimeline = observer(function RunTimeline() {
                     </div>
                   ))}
                 </Card>
+                )}
               </div>
             </motion.div>
           ))}

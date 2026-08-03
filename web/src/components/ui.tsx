@@ -50,12 +50,19 @@ export function Card({
   children,
   className = '',
   padded = true,
+  id,
 }: {
   children: ReactNode;
   className?: string;
   padded?: boolean;
+  /** For a card a control points at, so aria-controls has something to name. */
+  id?: string;
 }) {
-  return <div className={`card${padded ? ' card--padded' : ''} ${className}`.trim()}>{children}</div>;
+  return (
+    <div id={id} className={`card${padded ? ' card--padded' : ''} ${className}`.trim()}>
+      {children}
+    </div>
+  );
 }
 
 export function SectionHead({

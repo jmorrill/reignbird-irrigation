@@ -141,13 +141,45 @@
 
 /* --------------------------------------------------------------- run list */
 
+/* A disclosure button rather than a heading: the whole row is the target, which on
+   a phone is the difference between hitting it and hitting the day below. */
 .day-group__head {
+  width: 100%;
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s3);
+  align-items: center;
+  gap: var(--s2);
   margin-bottom: var(--s2);
-  padding: 0 var(--s1);
+  padding: var(--s2) var(--s1);
+  background: none;
+  border: 0;
+  border-radius: var(--r-md);
+  text-align: left;
+  cursor: pointer;
+}
+
+.day-group__head:hover {
+  background: var(--bg-sunk);
+}
+
+.day-group__chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 0.18s ease;
+}
+
+.day-group__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+/* Pushes the totals to the far edge, where they were before the chevron arrived. */
+.day-group__stat {
+  margin-left: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .day-group__chevron {
+    transition: none;
+  }
 }
 
 .day-group__label {
